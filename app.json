@@ -1,7 +1,3 @@
---- app.json (原始)
-
-
-+++ app.json (修改后)
 {
   "expo": {
     "name": "SOSCLT",

@@ -1,0 +1,77 @@
+--- android/app/src/main/AndroidManifest.xml (原始)
+
+
++++ android/app/src/main/AndroidManifest.xml (修改后)
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.sosclt.app">
+
+    <!-- Permissões para gravação de áudio -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT" />
+
+    <!-- Permissões para Foreground Service (gravação em background) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Permissão para manter dispositivo acordado durante gravação -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Permissões de armazenamento -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <!-- Permissão para internet (upload Supabase) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Permissão para notificações -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".MainApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="false"
+        android:theme="@style/AppTheme"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:label="@string/app_name"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.App.SplashScreen"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- [⚠️ ATENÇÃO] Serviço de gravação em foreground para Android -->
+        <service
+            android:name=".SOSService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone">
+        </service>
+
+        <!-- Widget de ativação rápida SOS -->
+        <receiver
+            android:name=".SOSWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.sosclt.app.ACTION_START_SOS" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/sos_widget_info" />
+        </receiver>
+
+    </application>
+</manifest>

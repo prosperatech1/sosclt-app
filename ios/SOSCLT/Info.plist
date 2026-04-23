@@ -1,0 +1,80 @@
+--- ios/SOSCLT/Info.plist (原始)
+
+
++++ ios/SOSCLT/Info.plist (修改后)
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+        <!-- [⚠️ ATENÇÃO] Configurações essenciais para gravação em background no iOS -->
+
+        <!-- Permissão de uso do microfone -->
+        <key>NSMicrophoneUsageDescription</key>
+        <string>Este app precisa acessar o microfone para gravar áudio em situações de emergência.</string>
+
+        <!-- Background Audio Mode - Permite gravação com app em segundo plano -->
+        <key>UIBackgroundModes</key>
+        <array>
+                <string>audio</string>
+        </array>
+
+        <!-- Configurações de sessão de áudio -->
+        <key>AVAudioSessionCategory</key>
+        <string>PlayAndRecord</string>
+
+        <key>AVAudioSessionMode</key>
+        <string>Default</string>
+
+        <!-- Permitir reprodução em modo silencioso -->
+        <key>AVAudioSessionSetActiveOptions</key>
+        <integer>0</integer>
+
+        <!-- App Group para comunicação entre Widget e App Principal -->
+        <key>com.apple.security.application-groups</key>
+        <array>
+                <string>group.com.sosclt.app</string>
+        </array>
+
+        <!-- Configurações básicas do app -->
+        <key>CFBundleName</key>
+        <string>SOSCLT</string>
+        <key>CFBundleDisplayName</key>
+        <string>SOSCLT</string>
+        <key>CFBundleIdentifier</key>
+        <string>com.sosclt.app</string>
+        <key>CFBundleVersion</key>
+        <string>1</string>
+        <key>CFBundleShortVersionString</key>
+        <string>1.0.0</string>
+
+        <!-- Ícones e launch screen -->
+        <key>CFBundleIconFiles</key>
+        <array>
+                <string>AppIcon60x60</string>
+        </array>
+
+        <!-- Requer dispositivos com capacidade de áudio -->
+        <key>UISupportedExternalAccessoryProtocols</key>
+        <array/>
+
+        <!-- Orientação suportada -->
+        <key>UISupportedInterfaceOrientations</key>
+        <array>
+                <string>UIInterfaceOrientationPortrait</string>
+        </array>
+
+        <!-- Versão mínima do iOS -->
+        <key>MinimumOSVersion</key>
+        <string>13.0</string>
+
+        <!-- Configurações de localização (opcional para SOS) -->
+        <key>NSLocationWhenInUseUsageDescription</key>
+        <string>Localização pode ser usada para identificar onde ocorreu a emergência.</string>
+
+        <!-- Background fetch para atualizações -->
+        <key>UIBackgroundFetchTypes</key>
+        <array>
+                <string>fetch</string>
+        </array>
+</dict>
+</plist>

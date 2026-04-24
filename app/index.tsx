@@ -2,9 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
-import * as Permissions from 'expo-permissions';
 import * as Linking from 'expo-linking';
-import * as FileSystem from 'expo-file-system';
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
@@ -24,7 +22,8 @@ export default function Home() {
 
   const requestMicrophonePermission = async () => {
     try {
-      const { status } = await Permissions.askAsync(Permissions.AUDIO_RECORDING);
+      // expo-av pede a permissão diretamente
+      const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert(
           'Permissão necessária',
@@ -65,7 +64,6 @@ export default function Home() {
       setRecording(null);
       console.log('Gravação salva em:', uri);
       
-      // Mostrar opção de enviar
       if (uri) {
         Alert.alert(
           '✅ Gravação salva!',
@@ -85,8 +83,6 @@ export default function Home() {
   };
 
   const sendViaWhatsApp = (uri: string) => {
-    // Nota: Em produção, você faria upload para Supabase aqui
-    // Por enquanto, simulamos com uma mensagem
     const phoneNumber = '5511999999999'; // Troque pelo número do contato
     const message = `🚨 SOSCLT - Emergência\n\nGravação de áudio salva.\nLocal: ${uri || 'Disponível no app'}`;
     const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
@@ -103,7 +99,6 @@ export default function Home() {
   };
 
   const handleSOSPressIn = () => {
-    // Inicia contagem ao pressionar
     setIsRecording(true);
     setCountdown(3);
     
@@ -120,7 +115,6 @@ export default function Home() {
   };
 
   const handleSOSPressOut = () => {
-    // Se soltar antes de 3s, cancela
     if (countdown > 0 && countdownRef.current) {
       clearInterval(countdownRef.current);
       setIsRecording(false);
@@ -132,7 +126,6 @@ export default function Home() {
     Vibration.vibrate([0, 200, 100, 200]);
     await startRecording();
     
-    // Notificação visual
     Alert.alert(
       '🆘 SOS ATIVADO',
       'Gravando áudio. Mantenha o app aberto.',

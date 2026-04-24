@@ -63,9 +63,11 @@ export default function Home() {
       await recording.stopAndUnloadAsync();
       const tempUri = recording.getURI();
       
-      // Salvar permanentemente no diretório do app
       const fileName = `SOS_${Date.now()}.m4a`;
-      const finalPath = FileSystem.documentDirectory + fileName;
+      // 🔽 AQUI ESTÁ A MUDANÇA: salva na pasta Downloads (visível)
+      const finalPath = Platform.OS === 'android'
+        ? FileSystem.DownloadDirectoryUri + '/' + fileName
+        : FileSystem.documentDirectory + fileName;
       
       await FileSystem.copyAsync({ from: tempUri!, to: finalPath });
       setSavedUri(finalPath);
@@ -74,7 +76,7 @@ export default function Home() {
       
       Alert.alert(
         '✅ Gravação Salva!',
-        'O áudio foi guardado com segurança no seu celular.',
+        'Áudio guardado na pasta Downloads do seu celular.',
         [{ text: 'OK' }]
       );
     } catch (err) {
@@ -99,7 +101,7 @@ export default function Home() {
       await Sharing.shareAsync(savedUri, {
         mimeType: 'audio/mp4',
         dialogTitle: 'Enviar gravação SOS',
-        UTI: 'public.audio' // iOS fallback
+        UTI: 'public.audio'
       });
     } catch (err) {
       console.error('Erro ao compartilhar:', err);
@@ -166,7 +168,7 @@ export default function Home() {
           <Text style={styles.savedIcon}>📂</Text>
           <View style={{flex: 1}}>
             <Text style={styles.savedTitle}>Áudio salvo com sucesso!</Text>
-            <Text style={styles.savedSub}>Toque para enviar ou guardar</Text>
+            <Text style={styles.savedSub}>Encontre na pasta Downloads</Text>
           </View>
           <TouchableOpacity style={styles.shareBtn} onPress={shareFile}>
             <Text style={styles.shareText}>Enviar</Text>

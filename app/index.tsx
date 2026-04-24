@@ -1,191 +1,152 @@
---- app/index.tsx (原始)
-
-
-+++ app/index.tsx (修改后)
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, StatusBar } from 'react-native';
-import { SOSButton } from '../components/SOSButton';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 
-/**
- * Tela Home do app SOSCLT
- * - Exibe saudação personalizada
- * - Botão SOS para gravação de emergência
- */
-
-// [⚠️ ATENÇÃO] Em produção, estes dados viriam do Supabase ou armazenamento local
-const MOCK_USER = {
-  id: 'user_123',
-  name: 'João Silva',
-  whatsapp_contact: '5511999999999',
-};
-
-export default function HomeScreen() {
+export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
+  const [countdown, setCountdown] = useState(3);
+
+  const handleSOSPress = () => {
+    // Inicia contagem de 3 segundos
+    setIsRecording(true);
+    setCountdown(3);
+    
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          activateSOS();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const activateSOS = () => {
+    Vibration.vibrate([0, 200, 100, 200]);
+    Alert.alert(
+      '🆘 SOS Ativado!',
+      'Gravação iniciada. Mantenha o app aberto para sua segurança.',
+      [{ text: 'Entendi', onPress: () => setIsRecording(false) }]
+    );
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
-
+    <View style={styles.container}>
+      <StatusBar style="light" />
+      
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.appName}>SOSCLT</Text>
-        <Text style={styles.appSubtitle}>Proteção Trabalhista</Text>
+        <Text style={styles.greeting}>Olá, Carlos e Kauan.</Text>
+        <Text style={styles.status}>Você está protegido.</Text>
       </View>
 
-      {/* Conteúdo Principal */}
-      <View style={styles.content}>
-        {/* Saudação */}
-        <View style={styles.greetingContainer}>
-          <Text style={styles.greetingText}>
-            Olá, {MOCK_USER.name}.
-          </Text>
-          <Text style={styles.protectionText}>
-            Você está protegido. 🛡️
-          </Text>
-        </View>
-
-        {/* Botão SOS */}
-        <View style={styles.sosContainer}>
-          <SOSButton
-            userId={MOCK_USER.id}
-            whatsappContact={MOCK_USER.whatsapp_contact}
-            onRecordingStart={() => setIsRecording(true)}
-            onRecordingStop={() => setIsRecording(false)}
-          />
-        </View>
-
-        {/* Instruções */}
-        <View style={styles.instructionsContainer}>
-          <Text style={styles.instructionsTitle}>Como usar:</Text>
-          <Text style={styles.instructionItem}>
-            1️⃣ Segure o botão por 3 segundos
-          </Text>
-          <Text style={styles.instructionItem}>
-            2️⃣ A gravação iniciará automaticamente
-          </Text>
-          <Text style={styles.instructionItem}>
-            3️⃣ Solte quando terminar
-          </Text>
-          <Text style={styles.instructionItem}>
-            4️⃣ Escolha enviar para seu contato
-          </Text>
-        </View>
-
-        {/* Status */}
-        {isRecording && (
-          <View style={styles.statusContainer}>
-            <View style={styles.recordingIndicator} />
-            <Text style={styles.statusText}>Gravando áudio...</Text>
-          </View>
-        )}
+      {/* Botão SOS */}
+      <View style={styles.sosContainer}>
+        <TouchableOpacity 
+          style={[styles.sosButton, isRecording && styles.sosButtonActive]}
+          onPress={handleSOSPress}
+          disabled={isRecording}
+        >
+          {isRecording ? (
+            <Text style={styles.sosCountdown}>{countdown}</Text>
+          ) : (
+            <>
+              <Text style={styles.sosIcon}>🆘</Text>
+              <Text style={styles.sosLabel}>ACIONAR SOS</Text>
+              <Text style={styles.sosSub}>Segure 3 segundos para ativar</Text>
+            </>
+          )}
+        </TouchableOpacity>
       </View>
 
-      {/* Footer */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Seus direitos trabalhistas protegidos
+      {/* Grade de Ferramentas */}
+      <View style={styles.grid}>
+        <View style={styles.card}>
+          <Text style={styles.cardIcon}>⚖️</Text>
+          <Text style={styles.cardTitle}>Meus Direitos</Text>
+          <Text style={styles.cardSub}>Buscar por situação</Text>
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.cardIcon}>🧮</Text>
+          <Text style={styles.cardTitle}>Calculadora</Text>
+          <Text style={styles.cardSub}>Férias · 13° · Extras</Text>
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.cardIcon}>👨‍⚖️</Text>
+          <Text style={styles.cardTitle}>Jurídico</Text>
+          <Text style={[styles.cardSub, {color: '#FFB74D'}]}>⭐ Premium</Text>
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.cardIcon}>📄</Text>
+          <Text style={styles.cardTitle}>Documentos</Text>
+          <Text style={styles.cardSub}>Gerar e guardar</Text>
+        </View>
+      </View>
+
+      {/* Barra de Diagnóstico */}
+      <View style={styles.diagBar}>
+        <View style={styles.diagTop}>
+          <Text style={styles.diagTitle}>📋 Diagnóstico trabalhista</Text>
+          <Text style={styles.diagBadge}>40% feito</Text>
+        </View>
+        <View style={styles.diagProgress}>
+          <View style={[styles.diagFill, {width: '40%'}]} />
+        </View>
+        <Text style={styles.diagSub}>Continue para ver se está sendo lesado →</Text>
+      </View>
+
+      {/* Alerta */}
+      <View style={styles.alert}>
+        <Text style={styles.alertIcon}>⚠️</Text>
+        <Text style={styles.alertText}>
+          <Text style={styles.alertStrong}>ALERTA DA SEMANA</Text>
+          {'\n'}Nova súmula do TST sobre hora extra. Pode te afetar.
         </Text>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#1a1a2e',
+  container: { flex: 1, backgroundColor: '#0F0F0F' },
+  header: { padding: 20, paddingTop: 50 },
+  greeting: { color: '#fff', fontSize: 18, fontFamily: 'System' },
+  status: { color: '#81C784', fontSize: 14, fontStyle: 'italic', marginTop: 4 },
+  
+  sosContainer: { alignItems: 'center', padding: 16 },
+  sosButton: {
+    width: '90%', backgroundColor: '#C62828', borderRadius: 20,
+    padding: 24, alignItems: 'center',
+    shadowColor: '#C62828', shadowOffset: {width:0, height:4},
+    shadowOpacity: 0.5, shadowRadius: 8, elevation: 6
   },
-  header: {
-    alignItems: 'center',
-    paddingVertical: 30,
-    backgroundColor: '#16213e',
+  sosButtonActive: { backgroundColor: '#8B0000' },
+  sosIcon: { fontSize: 32, marginBottom: 8 },
+  sosLabel: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 1 },
+  sosSub: { color: 'rgba(255,255,255,0.7)', fontSize: 10, marginTop: 4, fontStyle: 'italic' },
+  sosCountdown: { color: '#fff', fontSize: 48, fontWeight: '900' },
+  
+  grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8 },
+  card: {
+    width: '48%', backgroundColor: '#1E1E1E', borderRadius: 14,
+    padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)'
   },
-  appName: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#FF0000',
-    letterSpacing: 2,
-  },
-  appSubtitle: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    marginTop: 5,
-    opacity: 0.8,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-  },
-  greetingContainer: {
-    alignItems: 'center',
-    marginTop: 40,
-    marginBottom: 30,
-  },
-  greetingText: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  protectionText: {
-    fontSize: 18,
-    color: '#4CAF50',
-    marginTop: 10,
-    fontWeight: '500',
-  },
-  sosContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-  },
-  instructionsContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 15,
-    padding: 20,
-    width: '100%',
-    marginBottom: 20,
-  },
-  instructionsTitle: {
-    fontSize: 18,
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  instructionItem: {
-    fontSize: 14,
-    color: '#CCCCCC',
-    marginBottom: 8,
-    lineHeight: 20,
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 0, 0, 0.2)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginBottom: 20,
-  },
-  recordingIndicator: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#FF0000',
-    marginRight: 10,
-  },
-  statusText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  footer: {
-    paddingVertical: 20,
-    alignItems: 'center',
-    backgroundColor: '#16213e',
-  },
-  footerText: {
-    color: '#888888',
-    fontSize: 14,
-  },
+  cardIcon: { fontSize: 18, marginBottom: 4 },
+  cardTitle: { color: '#F0F0F0', fontSize: 13, fontWeight: '700' },
+  cardSub: { color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 },
+  
+  diagBar: { margin: 16, backgroundColor: '#1E3A1E', borderRadius: 14, padding: 14, borderColor: 'rgba(46,125,50,0.3)', borderWidth: 1 },
+  diagTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  diagTitle: { color: '#81C784', fontSize: 12, fontWeight: '700' },
+  diagBadge: { color: '#81C784', fontSize: 9, backgroundColor: 'rgba(46,125,50,0.3)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 100 },
+  diagProgress: { height: 5, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10 },
+  diagFill: { height: '100%', backgroundColor: '#2E7D32', borderRadius: 10 },
+  diagSub: { color: 'rgba(255,255,255,0.3)', fontSize: 9, marginTop: 5, fontStyle: 'italic' },
+  
+  alert: { margin: 16, backgroundColor: '#1A1500', borderRadius: 14, padding: 12, flexDirection: 'row', gap: 10, borderColor: 'rgba(255,143,0,0.3)', borderWidth: 1 },
+  alertIcon: { fontSize: 16 },
+  alertText: { color: '#FFB74D', fontSize: 10, flex: 1 },
+  alertStrong: { fontWeight: '700', fontSize: 11 }
 });

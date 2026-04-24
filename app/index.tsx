@@ -1,18 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Platform } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, FlatList, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
+type Recording = {
+  name: string;
+  uri: string;
+  date: string;
+  duration?: string; // Futuro: calcular duração real do arquivo
+};
+
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [savedUri, setSavedUri] = useState<string | null>(null);
   const [timer, setTimer] = useState(0);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [playingUri, setPlayingUri] = useState<string | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
   const timerRef = useRef<any>(null);
 
   useEffect(() => {
@@ -21,12 +28,37 @@ export default function Home() {
       if (status !== 'granted') {
         Alert.alert('Permissão Negada', 'Ative o microfone nas configurações do app.');
       }
+      loadRecordings();
     })();
     return () => {
       stopRecordingSilently();
       if (sound) sound.unloadAsync().catch(() => {});
     };
   }, []);
+
+  const loadRecordings = async () => {
+    try {
+      const dir = FileSystem.documentDirectory!;
+      const files = await FileSystem.readDirectoryAsync(dir);
+      const sosFiles = files.filter(f => f.startsWith('SOS_') && f.endsWith('.m4a'));
+      const sorted = sosFiles.sort((a, b) => b.localeCompare(a));
+      
+      const mapped: Recording[] = sorted.map(name => {
+        const timestamp = parseInt(name.replace('SOS_', '').replace('.m4a', ''));
+        return {
+          name,
+          uri: dir + name,
+          date: new Date(timestamp).toLocaleString('pt-BR', { 
+            day: '2-digit', month: '2-digit', year: 'numeric', 
+            hour: '2-digit', minute: '2-digit' 
+          })
+        };
+      });
+      setRecordings(mapped);
+    } catch (err) {
+      console.error('Erro ao carregar gravações:', err);
+    }
+  };
 
   const stopRecordingSilently = async () => {
     if (recording) {
@@ -69,19 +101,12 @@ export default function Home() {
       const tempUri = recording.getURI();
       
       const fileName = `SOS_${Date.now()}.m4a`;
-      // ✅ Caminho estável e testado (pasta interna do app)
       const finalPath = FileSystem.documentDirectory + fileName;
       
       await FileSystem.copyAsync({ from: tempUri!, to: finalPath });
-      setSavedUri(finalPath);
       
-      console.log('✅ Arquivo salvo em:', finalPath);
-      
-      Alert.alert(
-        '✅ Gravação Salva!',
-        'Áudio guardado com segurança na memória do app.',
-        [{ text: 'OK' }]
-      );
+      Alert.alert('✅ Salvo!', 'Gravação guardada com segurança.');
+      loadRecordings();
     } catch (err) {
       console.error('Erro ao salvar:', err);
       Alert.alert('Erro', 'Não foi possível salvar o arquivo.');
@@ -93,25 +118,26 @@ export default function Home() {
     }
   };
 
-  const playAudio = async () => {
-    if (!savedUri) return;
+  const togglePlay = async (uri: string) => {
     try {
-      if (sound) {
-        await sound.unloadAsync();
+      if (playingUri === uri) {
+        await sound?.stopAsync();
         setSound(null);
-        setIsPlaying(false);
+        setPlayingUri(null);
         return;
       }
+      if (sound) await sound.unloadAsync();
+      
       const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: savedUri },
+        { uri }, 
         { shouldPlay: true }
       );
       setSound(newSound);
-      setIsPlaying(true);
+      setPlayingUri(uri);
       
       newSound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
-          setIsPlaying(false);
+          setPlayingUri(null);
           setSound(null);
         }
       });
@@ -120,15 +146,14 @@ export default function Home() {
     }
   };
 
-  const shareFile = async () => {
-    if (!savedUri) return;
+  const shareFile = async (uri: string) => {
     try {
       const isAvailable = await Sharing.isAvailableAsync();
       if (!isAvailable) {
-        Alert.alert('Indisponível', 'Compartilhamento não suportado neste dispositivo.');
+        Alert.alert('Indisponível', 'Compartilhamento não suportado.');
         return;
       }
-      await Sharing.shareAsync(savedUri, {
+      await Sharing.shareAsync(uri, {
         mimeType: 'audio/mp4',
         dialogTitle: 'Enviar gravação SOS',
         UTI: 'public.audio'
@@ -136,6 +161,34 @@ export default function Home() {
     } catch (err) {
       Alert.alert('Erro', 'Não foi possível compartilhar.');
     }
+  };
+
+  const deleteRecording = async (uri: string, name: string) => {
+    Alert.alert(
+      '🗑️ Apagar gravação?',
+      `Tem certeza que deseja excluir ${name.replace('SOS_', '').replace('.m4a', '')}? Esta ação não pode ser desfeita.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Apagar', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              await FileSystem.deleteAsync(uri);
+              if (playingUri === uri) {
+                await sound?.unloadAsync();
+                setSound(null);
+                setPlayingUri(null);
+              }
+              loadRecordings();
+              Alert.alert('✅ Removido', 'Arquivo excluído com sucesso.');
+            } catch (err) {
+              Alert.alert('Erro', 'Não foi possível excluir o arquivo.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handlePressIn = () => {
@@ -160,6 +213,29 @@ export default function Home() {
     const sec = s % 60;
     return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   };
+
+  const renderRecording = ({ item }: { item: Recording }) => (
+    <View style={styles.recItem}>
+      <View style={styles.recInfo}>
+        <Text style={styles.recDate}>📅 {item.date}</Text>
+        <Text style={styles.recName}>{item.name.replace('SOS_', '').replace('.m4a', '')}</Text>
+      </View>
+      <View style={styles.recActions}>
+        <TouchableOpacity 
+          style={[styles.actionBtn, playingUri === item.uri && styles.actionBtnActive]} 
+          onPress={() => togglePlay(item.uri)}
+        >
+          <Text style={styles.actionText}>{playingUri === item.uri ? '⏸' : '▶'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => shareFile(item.uri)}>
+          <Text style={styles.actionText}>📤</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteRecording(item.uri, item.name)}>
+          <Text style={styles.deleteText}>🗑️</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
@@ -192,23 +268,21 @@ export default function Home() {
         )}
       </View>
 
-      {savedUri && (
-        <View style={styles.savedCard}>
-          <Text style={styles.savedIcon}>🎧</Text>
-          <View style={{flex: 1}}>
-            <Text style={styles.savedTitle}>Áudio salvo com sucesso!</Text>
-            <Text style={styles.savedSub}>Toque para ouvir ou enviar</Text>
-          </View>
-          <View style={{flexDirection: 'row', gap: 8}}>
-            <TouchableOpacity style={[styles.actionBtn, isPlaying && styles.actionBtnActive]} onPress={playAudio}>
-              <Text style={styles.actionText}>{isPlaying ? '⏹ Parar' : '▶ Ouvir'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.shareBtn} onPress={shareFile}>
-              <Text style={styles.shareText}>Enviar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+      {/* 📂 Lista de Gravações */}
+      <View style={styles.listContainer}>
+        <Text style={styles.listTitle}>📂 Minhas Gravações ({recordings.length})</Text>
+        {recordings.length === 0 ? (
+          <Text style={styles.emptyText}>Nenhuma gravação ainda. Ative o SOS para começar.</Text>
+        ) : (
+          <FlatList
+            data={recordings}
+            keyExtractor={item => item.uri}
+            renderItem={renderRecording}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+      </View>
 
       <View style={styles.grid}>
         <View style={styles.card}><Text style={styles.cIcon}>⚖️</Text><Text style={styles.cTitle}>Meus Direitos</Text></View>
@@ -237,15 +311,27 @@ const styles = StyleSheet.create({
   stopBtn: { backgroundColor: '#FF5252', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 30 },
   stopText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   
-  savedCard: { margin: 16, padding: 14, backgroundColor: '#1E3A1E', borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderColor: '#2E7D32', borderWidth: 1 },
-  savedIcon: { fontSize: 24 },
-  savedTitle: { color: '#81C784', fontWeight: '600' },
-  savedSub: { color: '#aaa', fontSize: 10 },
-  actionBtn: { backgroundColor: '#2196F3', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  actionBtnActive: { backgroundColor: '#FF5252' },
-  actionText: { color: '#fff', fontWeight: '700', fontSize: 12 },
-  shareBtn: { backgroundColor: '#FFB74D', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  shareText: { color: '#000', fontWeight: '700', fontSize: 12 },
+  listContainer: { flex: 1, paddingHorizontal: 16, paddingTop: 8 },
+  listTitle: { color: '#81C784', fontSize: 16, fontWeight: '700', marginBottom: 12, paddingLeft: 4 },
+  listContent: { paddingBottom: 20 },
+  emptyText: { color: '#666', textAlign: 'center', marginTop: 20, fontStyle: 'italic' },
+  
+  recItem: {
+    backgroundColor: '#1A1A1A', borderRadius: 12, padding: 12, marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)'
+  },
+  recInfo: { flex: 1, marginRight: 8 },
+  recDate: { color: '#aaa', fontSize: 11, marginBottom: 2 },
+  recName: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  recActions: { flexDirection: 'row', gap: 8 },
+  
+  actionBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#2196F3', alignItems: 'center', justifyContent: 'center' },
+  actionBtnActive: { backgroundColor: '#FF9800' },
+  actionText: { color: '#fff', fontSize: 14 },
+  
+  deleteBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,82,82,0.2)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FF5252' },
+  deleteText: { fontSize: 14 },
   
   grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8 },
   card: { width: '48%', backgroundColor: '#1E1E1E', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },

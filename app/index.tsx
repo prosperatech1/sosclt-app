@@ -1,34 +1,37 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Share } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
   const [countdown, setCountdown] = useState(3);
-  const [recording, setRecording] = useState<any>(null);
-  const [audioUri, setAudioUri] = useState<string | null>(null);
-  const [recordingTime, setRecordingTime] = useState(0);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [savedUri, setSavedUri] = useState<string | null>(null);
+  const [timer, setTimer] = useState(0);
+  const timerRef = useRef<any>(null);
 
   useEffect(() => {
-    requestPermission();
-    return () => {
-      if (recording) {
-        recording.stopAndUnloadAsync().catch(() => {});
-      }
-    };
-  }, []);
-
-  const requestPermission = async () => {
-    try {
+    (async () => {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permissão necessária', 'O app precisa do microfone para funcionar.');
+        Alert.alert('Permissão Negada', 'Ative o microfone nas configurações do app.');
       }
-    } catch (e) {
-      console.log('Erro permissão:', e);
+    })();
+    return () => stopRecordingSilently();
+  }, []);
+
+  const stopRecordingSilently = async () => {
+    if (recording) {
+      try { await recording.stopAndUnloadAsync(); } catch {}
+      setRecording(null);
     }
+    if (timerRef.current) clearInterval(timerRef.current);
+    setIsRecording(false);
+    setCountdown(3);
+    setTimer(0);
   };
 
   const startRecording = async () => {
@@ -38,82 +41,73 @@ export default function Home() {
         playsInSilentModeIOS: true,
       });
 
-      const { recording: newRecording } = await Audio.Recording.createAsync(
+      const { recording: newRec } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
-      
-      setRecording(newRecording);
+      setRecording(newRec);
       setIsRecording(true);
-      setRecordingTime(0);
-      
-      const timer = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
-      (newRecording as any)._timer = timer;
-      
-    } catch (e) {
-      console.log('Erro ao iniciar:', e);
-      Alert.alert('Erro', 'Não foi possível gravar.');
-      setIsRecording(false);
+      setTimer(0);
+
+      timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
+    } catch (err) {
+      console.error('Falha ao iniciar gravação:', err);
+      Alert.alert('Erro', 'Não foi possível acessar o microfone.');
     }
   };
 
-  const stopRecording = async () => {
+  const stopAndSave = async () => {
     if (!recording) return;
-    
     try {
-      if ((recording as any)._timer) clearInterval((recording as any)._timer);
+      if (timerRef.current) clearInterval(timerRef.current);
       
       await recording.stopAndUnloadAsync();
       const tempUri = recording.getURI();
       
-      // --- A MÁGICA ACONTECE AQUI: MOVER O ARQUIVO PARA PASTA PÚBLICA ---
-      // Copia do Cache (temporário) para Documentos (permanente)
-      const fileName = `SOSCLT_Gravação_${new Date().getTime()}.m4a`;
+      // Salvar permanentemente no diretório do app
+      const fileName = `SOS_${Date.now()}.m4a`;
       const finalPath = FileSystem.documentDirectory + fileName;
       
-      await FileSystem.moveAsync({
-        from: tempUri!,
-        to: finalPath
-      });
-
-      setAudioUri(finalPath);
-      setRecording(null);
-      setIsRecording(false);
-      setCountdown(3);
-      setRecordingTime(0);
+      await FileSystem.copyAsync({ from: tempUri!, to: finalPath });
+      setSavedUri(finalPath);
       
       console.log('✅ Arquivo salvo em:', finalPath);
       
       Alert.alert(
-        '✅ Sucesso!',
-        'Áudio gravado e salvo na pasta Documentos do seu celular.',
+        '✅ Gravação Salva!',
+        'O áudio foi guardado com segurança no seu celular.',
         [{ text: 'OK' }]
       );
-    } catch (e) {
-      console.log('Erro ao salvar:', e);
+    } catch (err) {
+      console.error('Erro ao salvar:', err);
       Alert.alert('Erro', 'Não foi possível salvar o arquivo.');
+    } finally {
+      setRecording(null);
       setIsRecording(false);
       setCountdown(3);
+      setTimer(0);
     }
   };
 
-  const shareAudio = async () => {
-    if (!audioUri) return;
-    
+  const shareFile = async () => {
+    if (!savedUri) return;
     try {
-      // Usa o compartilhamento nativo do Android (abre WhatsApp, Email, Drive, etc)
-      await Share.share({
-        url: audioUri,
-        title: 'Gravação SOSCLT',
-        message: 'Segue a gravação de emergência.'
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('Indisponível', 'Compartilhamento não suportado neste dispositivo.');
+        return;
+      }
+      await Sharing.shareAsync(savedUri, {
+        mimeType: 'audio/mp4',
+        dialogTitle: 'Enviar gravação SOS',
+        UTI: 'public.audio' // iOS fallback
       });
-    } catch (error) {
-      Alert.alert('Erro', 'Não foi possível compartilhar.');
+    } catch (err) {
+      console.error('Erro ao compartilhar:', err);
+      Alert.alert('Erro', 'Não foi possível abrir o menu de compartilhamento.');
     }
   };
 
-  const handleSOSPressIn = () => {
+  const handlePressIn = () => {
     if (isRecording) return;
     setIsRecording(true);
     setCountdown(3);
@@ -130,10 +124,10 @@ export default function Home() {
     }, 1000);
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -147,58 +141,44 @@ export default function Home() {
 
       <View style={styles.sosContainer}>
         <TouchableOpacity 
-          style={[styles.sosButton, isRecording && countdown === 0 && styles.sosButtonRecording]}
-          onPressIn={handleSOSPressIn}
+          style={[styles.sosBtn, isRecording && styles.sosBtnActive]}
+          onPressIn={handlePressIn}
           disabled={isRecording && countdown === 0}
-          activeOpacity={0.8}
         >
           {isRecording && countdown > 0 ? (
-            <>
-              <Text style={styles.sosIcon}>⏱️</Text>
-              <Text style={styles.sosCountdown}>{countdown}</Text>
-              <Text style={styles.sosSub}>Solte para cancelar</Text>
-            </>
-          ) : isRecording && countdown === 0 ? (
-            <>
-              <Text style={styles.sosIcon}>🔴</Text>
-              <Text style={styles.sosLabel}>{formatTime(recordingTime)}</Text>
-              <Text style={styles.sosSub}>Gravando... Toque para PARAR</Text>
-            </>
+            <><Text style={styles.icon}>⏱️</Text><Text style={styles.bigNum}>{countdown}</Text><Text style={styles.sub}>Solte para cancelar</Text></>
+          ) : isRecording ? (
+            <><Text style={styles.icon}>🔴</Text><Text style={styles.bigNum}>{formatTime(timer)}</Text><Text style={styles.sub}>Gravando... Toque para PARAR</Text></>
           ) : (
-            <>
-              <Text style={styles.sosIcon}>🆘</Text>
-              <Text style={styles.sosLabel}>ACIONAR SOS</Text>
-              <Text style={styles.sosSub}>Segure 3 segundos para ativar</Text>
-            </>
+            <><Text style={styles.icon}>🆘</Text><Text style={styles.label}>ACIONAR SOS</Text><Text style={styles.sub}>Segure 3s para ativar</Text></>
           )}
         </TouchableOpacity>
-        
+
         {isRecording && countdown === 0 && (
-          <TouchableOpacity style={styles.stopButton} onPress={stopRecording}>
-            <Text style={styles.stopText}>⏹️ PARAR GRAVAÇÃO</Text>
+          <TouchableOpacity style={styles.stopBtn} onPress={stopAndSave}>
+            <Text style={styles.stopText}>⏹️ PARAR & SALVAR</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Botão de Compartilhar (só aparece se tiver áudio salvo) */}
-      {audioUri && (
-        <View style={styles.statusCard}>
-          <Text style={styles.statusIcon}>📂</Text>
+      {savedUri && (
+        <View style={styles.savedCard}>
+          <Text style={styles.savedIcon}>📂</Text>
           <View style={{flex: 1}}>
-            <Text style={styles.statusText}>Arquivo salvo!</Text>
-            <Text style={{color: '#aaa', fontSize: 10}}>Toque abaixo para enviar</Text>
+            <Text style={styles.savedTitle}>Áudio salvo com sucesso!</Text>
+            <Text style={styles.savedSub}>Toque para enviar ou guardar</Text>
           </View>
-          <TouchableOpacity style={styles.shareBtn} onPress={shareAudio}>
-            <Text style={styles.shareText}>Compartilhar</Text>
+          <TouchableOpacity style={styles.shareBtn} onPress={shareFile}>
+            <Text style={styles.shareText}>Enviar</Text>
           </TouchableOpacity>
         </View>
       )}
 
       <View style={styles.grid}>
-        <View style={styles.card}><Text style={styles.cardIcon}>⚖️</Text><Text style={styles.cardTitle}>Meus Direitos</Text></View>
-        <View style={styles.card}><Text style={styles.cardIcon}>🧮</Text><Text style={styles.cardTitle}>Calculadora</Text></View>
-        <View style={styles.card}><Text style={styles.cardIcon}>👨‍⚖️</Text><Text style={[styles.cardSub, {color: '#FFB74D'}]}>Jurídico ⭐</Text></View>
-        <View style={styles.card}><Text style={styles.cardIcon}>📄</Text><Text style={styles.cardTitle}>Documentos</Text></View>
+        <View style={styles.card}><Text style={styles.cIcon}>⚖️</Text><Text style={styles.cTitle}>Meus Direitos</Text></View>
+        <View style={styles.card}><Text style={styles.cIcon}>🧮</Text><Text style={styles.cTitle}>Calculadora</Text></View>
+        <View style={styles.card}><Text style={styles.cIcon}>👨‍⚖️</Text><Text style={[styles.cSub, {color:'#FFB74D'}]}>Jurídico ⭐</Text></View>
+        <View style={styles.card}><Text style={styles.cIcon}>📄</Text><Text style={styles.cTitle}>Documentos</Text></View>
       </View>
     </View>
   );
@@ -211,34 +191,26 @@ const styles = StyleSheet.create({
   status: { color: '#81C784', fontSize: 14, fontStyle: 'italic', marginTop: 4 },
   
   sosContainer: { alignItems: 'center', padding: 16 },
-  sosButton: {
-    width: '90%', backgroundColor: '#C62828', borderRadius: 20,
-    padding: 24, alignItems: 'center', marginBottom: 12,
-    shadowColor: '#C62828', shadowOffset: {width:0, height:4},
-    shadowOpacity: 0.5, shadowRadius: 8, elevation: 6
-  },
-  sosButtonRecording: { backgroundColor: '#8B0000' },
-  sosIcon: { fontSize: 32, marginBottom: 8 },
-  sosLabel: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 1 },
-  sosSub: { color: 'rgba(255,255,255,0.7)', fontSize: 10, marginTop: 4, fontStyle: 'italic' },
-  sosCountdown: { color: '#fff', fontSize: 48, fontWeight: '900' },
+  sosBtn: { width: '90%', backgroundColor: '#C62828', borderRadius: 20, padding: 24, alignItems: 'center', marginBottom: 12, elevation: 6 },
+  sosBtnActive: { backgroundColor: '#8B0000' },
+  icon: { fontSize: 32, marginBottom: 8 },
+  label: { color: '#fff', fontSize: 22, fontWeight: '900' },
+  sub: { color: 'rgba(255,255,255,0.6)', fontSize: 10, marginTop: 4 },
+  bigNum: { color: '#fff', fontSize: 48, fontWeight: '900' },
   
-  stopButton: { backgroundColor: '#FF5252', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 30, marginTop: 8 },
+  stopBtn: { backgroundColor: '#FF5252', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 30 },
   stopText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   
-  statusCard: {
-    margin: 16, padding: 14, backgroundColor: '#1E3A1E',
-    borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderColor: '#2E7D32', borderWidth: 1
-  },
-  statusIcon: { fontSize: 20 },
-  statusText: { color: '#81C784', fontWeight: '600' },
+  savedCard: { margin: 16, padding: 14, backgroundColor: '#1E3A1E', borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderColor: '#2E7D32', borderWidth: 1 },
+  savedIcon: { fontSize: 24 },
+  savedTitle: { color: '#81C784', fontWeight: '600' },
+  savedSub: { color: '#aaa', fontSize: 10 },
   shareBtn: { backgroundColor: '#FFB74D', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   shareText: { color: '#000', fontWeight: '700', fontSize: 12 },
   
   grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8 },
   card: { width: '48%', backgroundColor: '#1E1E1E', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-  cardIcon: { fontSize: 18, marginBottom: 4 },
-  cardTitle: { color: '#F0F0F0', fontSize: 13, fontWeight: '700' },
-  cardSub: { color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }
+  cIcon: { fontSize: 18, marginBottom: 4 },
+  cTitle: { color: '#F0F0F0', fontSize: 13, fontWeight: '700' },
+  cSub: { color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }
 });

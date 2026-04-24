@@ -40,8 +40,9 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "supabaseUrl": "YOUR_SUPABASE_URL",
-      "supabaseAnonKey": "YOUR_SUPABASE_ANON_KEY"
+      "eas": {
+        "projectId": "76730309-61c1-4dda-b6c1-eb3812b5f1ee"
+      }
     }
   }
 }

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Linking, Platform } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Share } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
@@ -23,7 +24,7 @@ export default function Home() {
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permissão necessária', 'Ative o microfone nas configurações para usar o SOS.');
+        Alert.alert('Permissão necessária', 'O app precisa do microfone para funcionar.');
       }
     } catch (e) {
       console.log('Erro permissão:', e);
@@ -44,7 +45,6 @@ export default function Home() {
       setRecording(newRecording);
       setIsRecording(true);
       setRecordingTime(0);
-      console.log('✅ Gravação iniciada');
       
       const timer = setInterval(() => {
         setRecordingTime(prev => prev + 1);
@@ -52,94 +52,69 @@ export default function Home() {
       (newRecording as any)._timer = timer;
       
     } catch (e) {
-      console.log('❌ Erro ao iniciar:', e);
-      Alert.alert('Erro', 'Não foi possível iniciar a gravação.');
+      console.log('Erro ao iniciar:', e);
+      Alert.alert('Erro', 'Não foi possível gravar.');
       setIsRecording(false);
     }
   };
 
   const stopRecording = async () => {
-    if (!recording) {
-      setIsRecording(false);
-      setCountdown(3);
-      return;
-    }
+    if (!recording) return;
     
     try {
-      if ((recording as any)._timer) {
-        clearInterval((recording as any)._timer);
-      }
+      if ((recording as any)._timer) clearInterval((recording as any)._timer);
       
       await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      const tempUri = recording.getURI();
       
-      setAudioUri(uri);
+      // --- A MÁGICA ACONTECE AQUI: MOVER O ARQUIVO PARA PASTA PÚBLICA ---
+      // Copia do Cache (temporário) para Documentos (permanente)
+      const fileName = `SOSCLT_Gravação_${new Date().getTime()}.m4a`;
+      const finalPath = FileSystem.documentDirectory + fileName;
+      
+      await FileSystem.moveAsync({
+        from: tempUri!,
+        to: finalPath
+      });
+
+      setAudioUri(finalPath);
       setRecording(null);
       setIsRecording(false);
       setCountdown(3);
       setRecordingTime(0);
       
-      console.log('✅ Arquivo salvo em:', uri);
+      console.log('✅ Arquivo salvo em:', finalPath);
       
-      // Alert com 3 opções: Salvar, Enviar ou Cancelar
-      if (uri) {
-        Alert.alert(
-          '✅ Gravação salva!',
-          'O arquivo foi guardado no seu celular.',
-          [
-            { 
-              text: 'Apenas Salvar', 
-              style: 'default',
-              onPress: () => console.log('Salvo sem enviar')
-            },
-            { 
-              text: 'Enviar WhatsApp', 
-              style: 'default',
-              onPress: () => sendViaWhatsApp(uri) 
-            },
-            { text: 'Cancelar', style: 'cancel' }
-          ]
-        );
-      }
+      Alert.alert(
+        '✅ Sucesso!',
+        'Áudio gravado e salvo na pasta Documentos do seu celular.',
+        [{ text: 'OK' }]
+      );
     } catch (e) {
-      console.log('❌ Erro ao parar:', e);
-      Alert.alert('Erro', 'Não foi possível salvar a gravação.');
+      console.log('Erro ao salvar:', e);
+      Alert.alert('Erro', 'Não foi possível salvar o arquivo.');
       setIsRecording(false);
       setCountdown(3);
     }
   };
 
-  const sendViaWhatsApp = (uri: string) => {
-    // Número do contato (formato internacional: 55 + DDD + número)
-    const phoneNumber = '5511999999999'; 
+  const shareAudio = async () => {
+    if (!audioUri) return;
     
-    // Mensagem
-    const message = `🚨 SOSCLT - Emergência\n\nGravação de áudio salva no dispositivo.`;
-    
-    // URL universal que funciona em app e navegador
-    const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-    
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          // Fallback: tenta abrir o app direto
-          return Linking.openURL('whatsapp://send?text=' + encodeURIComponent(message));
-        }
-      })
-      .catch((err) => {
-        console.log('Erro WhatsApp:', err);
-        Alert.alert(
-          'Tudo certo!', 
-          'Gravação salva com sucesso! Você pode compartilhar o arquivo manualmente depois.'
-        );
+    try {
+      // Usa o compartilhamento nativo do Android (abre WhatsApp, Email, Drive, etc)
+      await Share.share({
+        url: audioUri,
+        title: 'Gravação SOSCLT',
+        message: 'Segue a gravação de emergência.'
       });
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível compartilhar.');
+    }
   };
 
   const handleSOSPressIn = () => {
     if (isRecording) return;
-    
     setIsRecording(true);
     setCountdown(3);
     
@@ -165,13 +140,11 @@ export default function Home() {
     <View style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.greeting}>Olá, Carlos.</Text>
         <Text style={styles.status}>Você está protegido.</Text>
       </View>
 
-      {/* Botão SOS */}
       <View style={styles.sosContainer}>
         <TouchableOpacity 
           style={[styles.sosButton, isRecording && countdown === 0 && styles.sosButtonRecording]}
@@ -200,7 +173,6 @@ export default function Home() {
           )}
         </TouchableOpacity>
         
-        {/* Botão de parar visível */}
         {isRecording && countdown === 0 && (
           <TouchableOpacity style={styles.stopButton} onPress={stopRecording}>
             <Text style={styles.stopText}>⏹️ PARAR GRAVAÇÃO</Text>
@@ -208,59 +180,25 @@ export default function Home() {
         )}
       </View>
 
-      {/* Status da gravação */}
+      {/* Botão de Compartilhar (só aparece se tiver áudio salvo) */}
       {audioUri && (
         <View style={styles.statusCard}>
-          <Text style={styles.statusIcon}>✅</Text>
-          <Text style={styles.statusText}>Arquivo salvo no celular!</Text>
-          <TouchableOpacity onPress={() => sendViaWhatsApp(audioUri!)}>
-            <Text style={styles.sendButton}>Compartilhar →</Text>
+          <Text style={styles.statusIcon}>📂</Text>
+          <View style={{flex: 1}}>
+            <Text style={styles.statusText}>Arquivo salvo!</Text>
+            <Text style={{color: '#aaa', fontSize: 10}}>Toque abaixo para enviar</Text>
+          </View>
+          <TouchableOpacity style={styles.shareBtn} onPress={shareAudio}>
+            <Text style={styles.shareText}>Compartilhar</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Grade de Ferramentas */}
       <View style={styles.grid}>
-        <View style={styles.card}>
-          <Text style={styles.cardIcon}>⚖️</Text>
-          <Text style={styles.cardTitle}>Meus Direitos</Text>
-          <Text style={styles.cardSub}>Buscar por situação</Text>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardIcon}>🧮</Text>
-          <Text style={styles.cardTitle}>Calculadora</Text>
-          <Text style={styles.cardSub}>Férias · 13°</Text>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardIcon}>👨‍⚖️</Text>
-          <Text style={[styles.cardSub, {color: '#FFB74D'}]}>Jurídico ⭐</Text>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardIcon}>📄</Text>
-          <Text style={styles.cardTitle}>Documentos</Text>
-          <Text style={styles.cardSub}>Gerar e guardar</Text>
-        </View>
-      </View>
-
-      {/* Barra de Diagnóstico */}
-      <View style={styles.diagBar}>
-        <View style={styles.diagTop}>
-          <Text style={styles.diagTitle}>📋 Diagnóstico trabalhista</Text>
-          <Text style={styles.diagBadge}>40% feito</Text>
-        </View>
-        <View style={styles.diagProgress}>
-          <View style={[styles.diagFill, {width: '40%'}]} />
-        </View>
-        <Text style={styles.diagSub}>Continue para ver se está sendo lesado →</Text>
-      </View>
-
-      {/* Alerta */}
-      <View style={styles.alert}>
-        <Text style={styles.alertIcon}>⚠️</Text>
-        <Text style={styles.alertText}>
-          <Text style={styles.alertStrong}>ALERTA DA SEMANA</Text>
-          {'\n'}Nova súmula do TST sobre hora extra. Pode te afetar.
-        </Text>
+        <View style={styles.card}><Text style={styles.cardIcon}>⚖️</Text><Text style={styles.cardTitle}>Meus Direitos</Text></View>
+        <View style={styles.card}><Text style={styles.cardIcon}>🧮</Text><Text style={styles.cardTitle}>Calculadora</Text></View>
+        <View style={styles.card}><Text style={styles.cardIcon}>👨‍⚖️</Text><Text style={[styles.cardSub, {color: '#FFB74D'}]}>Jurídico ⭐</Text></View>
+        <View style={styles.card}><Text style={styles.cardIcon}>📄</Text><Text style={styles.cardTitle}>Documentos</Text></View>
       </View>
     </View>
   );
@@ -285,10 +223,7 @@ const styles = StyleSheet.create({
   sosSub: { color: 'rgba(255,255,255,0.7)', fontSize: 10, marginTop: 4, fontStyle: 'italic' },
   sosCountdown: { color: '#fff', fontSize: 48, fontWeight: '900' },
   
-  stopButton: {
-    backgroundColor: '#FF5252', paddingHorizontal: 24, paddingVertical: 12,
-    borderRadius: 30, marginTop: 8
-  },
+  stopButton: { backgroundColor: '#FF5252', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 30, marginTop: 8 },
   stopText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   
   statusCard: {
@@ -297,28 +232,13 @@ const styles = StyleSheet.create({
     borderColor: '#2E7D32', borderWidth: 1
   },
   statusIcon: { fontSize: 20 },
-  statusText: { color: '#81C784', flex: 1, fontWeight: '600' },
-  sendButton: { color: '#FFB74D', fontWeight: '700' },
+  statusText: { color: '#81C784', fontWeight: '600' },
+  shareBtn: { backgroundColor: '#FFB74D', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  shareText: { color: '#000', fontWeight: '700', fontSize: 12 },
   
   grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8 },
-  card: {
-    width: '48%', backgroundColor: '#1E1E1E', borderRadius: 14,
-    padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)'
-  },
+  card: { width: '48%', backgroundColor: '#1E1E1E', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   cardIcon: { fontSize: 18, marginBottom: 4 },
   cardTitle: { color: '#F0F0F0', fontSize: 13, fontWeight: '700' },
-  cardSub: { color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 },
-  
-  diagBar: { margin: 16, backgroundColor: '#1E3A1E', borderRadius: 14, padding: 14, borderColor: 'rgba(46,125,50,0.3)', borderWidth: 1 },
-  diagTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  diagTitle: { color: '#81C784', fontSize: 12, fontWeight: '700' },
-  diagBadge: { color: '#81C784', fontSize: 9, backgroundColor: 'rgba(46,125,50,0.3)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 100 },
-  diagProgress: { height: 5, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10 },
-  diagFill: { height: '100%', backgroundColor: '#2E7D32', borderRadius: 10 },
-  diagSub: { color: 'rgba(255,255,255,0.3)', fontSize: 9, marginTop: 5, fontStyle: 'italic' },
-  
-  alert: { margin: 16, backgroundColor: '#1A1500', borderRadius: 14, padding: 12, flexDirection: 'row', gap: 10, borderColor: 'rgba(255,143,0,0.3)', borderWidth: 1 },
-  alertIcon: { fontSize: 16 },
-  alertText: { color: '#FFB74D', fontSize: 10, flex: 1 },
-  alertStrong: { fontWeight: '700', fontSize: 11 }
+  cardSub: { color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }
 });

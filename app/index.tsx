@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, FlatList, Platform } from 'react-native';
+import { 
+  StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, 
+  Modal, FlatList, ActivityIndicator 
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
@@ -9,26 +12,36 @@ type Recording = {
   name: string;
   uri: string;
   date: string;
-  duration?: string; // Futuro: calcular duração real do arquivo
 };
 
+const PAGE_SIZE = 5;
+
 export default function Home() {
+  // SOS States
   const [isRecording, setIsRecording] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [timer, setTimer] = useState(0);
-  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const timerRef = useRef<any>(null);
+
+  // List & Modal States
+  const [allRecordings, setAllRecordings] = useState<Recording[]>([]);
+  const [visibleRecordings, setVisibleRecordings] = useState<Recording[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [showHistory, setShowHistory] = useState(false);
+  
+  // Player State
   const [playingUri, setPlayingUri] = useState<string | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const timerRef = useRef<any>(null);
 
   useEffect(() => {
     (async () => {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permissão Negada', 'Ative o microfone nas configurações do app.');
+        Alert.alert('Permissão Negada', 'Ative o microfone nas configurações.');
       }
-      loadRecordings();
+      loadAllRecordings();
     })();
     return () => {
       stopRecordingSilently();
@@ -36,7 +49,8 @@ export default function Home() {
     };
   }, []);
 
-  const loadRecordings = async () => {
+  // Carrega TODOS os arquivos do diretório
+  const loadAllRecordings = async () => {
     try {
       const dir = FileSystem.documentDirectory!;
       const files = await FileSystem.readDirectoryAsync(dir);
@@ -54,10 +68,30 @@ export default function Home() {
           })
         };
       });
-      setRecordings(mapped);
+      setAllRecordings(mapped);
     } catch (err) {
-      console.error('Erro ao carregar gravações:', err);
+      console.error('Erro ao carregar:', err);
     }
+  };
+
+  // Abre o Modal e reseta paginação
+  const openHistory = () => {
+    setPage(1);
+    setVisibleRecordings(allRecordings.slice(0, PAGE_SIZE));
+    setHasMore(allRecordings.length > PAGE_SIZE);
+    setShowHistory(true);
+  };
+
+  // Carrega próxima página
+  const loadMore = () => {
+    const nextPage = page + 1;
+    const start = (nextPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    const newItems = allRecordings.slice(start, end);
+    
+    setVisibleRecordings(prev => [...prev, ...newItems]);
+    setPage(nextPage);
+    setHasMore(end < allRecordings.length);
   };
 
   const stopRecordingSilently = async () => {
@@ -73,21 +107,13 @@ export default function Home() {
 
   const startRecording = async () => {
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording: newRec } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording: newRec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       setRecording(newRec);
       setIsRecording(true);
       setTimer(0);
-
       timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
     } catch (err) {
-      console.error('Falha ao iniciar gravação:', err);
       Alert.alert('Erro', 'Não foi possível acessar o microfone.');
     }
   };
@@ -96,20 +122,16 @@ export default function Home() {
     if (!recording) return;
     try {
       if (timerRef.current) clearInterval(timerRef.current);
-      
       await recording.stopAndUnloadAsync();
       const tempUri = recording.getURI();
-      
       const fileName = `SOS_${Date.now()}.m4a`;
       const finalPath = FileSystem.documentDirectory + fileName;
-      
       await FileSystem.copyAsync({ from: tempUri!, to: finalPath });
       
       Alert.alert('✅ Salvo!', 'Gravação guardada com segurança.');
-      loadRecordings();
+      await loadAllRecordings(); // Atualiza lista em background
     } catch (err) {
-      console.error('Erro ao salvar:', err);
-      Alert.alert('Erro', 'Não foi possível salvar o arquivo.');
+      Alert.alert('Erro', 'Não foi possível salvar.');
     } finally {
       setRecording(null);
       setIsRecording(false);
@@ -127,14 +149,9 @@ export default function Home() {
         return;
       }
       if (sound) await sound.unloadAsync();
-      
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri }, 
-        { shouldPlay: true }
-      );
+      const { sound: newSound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
       setSound(newSound);
       setPlayingUri(uri);
-      
       newSound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
           setPlayingUri(null);
@@ -142,96 +159,65 @@ export default function Home() {
         }
       });
     } catch (err) {
-      Alert.alert('Erro', 'Não foi possível reproduzir o áudio.');
+      Alert.alert('Erro', 'Não foi possível reproduzir.');
     }
   };
 
   const shareFile = async (uri: string) => {
     try {
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (!isAvailable) {
-        Alert.alert('Indisponível', 'Compartilhamento não suportado.');
-        return;
-      }
-      await Sharing.shareAsync(uri, {
-        mimeType: 'audio/mp4',
-        dialogTitle: 'Enviar gravação SOS',
-        UTI: 'public.audio'
-      });
+      await Sharing.shareAsync(uri, { mimeType: 'audio/mp4', dialogTitle: 'Enviar gravação SOS', UTI: 'public.audio' });
     } catch (err) {
       Alert.alert('Erro', 'Não foi possível compartilhar.');
     }
   };
 
   const deleteRecording = async (uri: string, name: string) => {
-    Alert.alert(
-      '🗑️ Apagar gravação?',
-      `Tem certeza que deseja excluir ${name.replace('SOS_', '').replace('.m4a', '')}? Esta ação não pode ser desfeita.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Apagar', 
-          style: 'destructive', 
-          onPress: async () => {
-            try {
-              await FileSystem.deleteAsync(uri);
-              if (playingUri === uri) {
-                await sound?.unloadAsync();
-                setSound(null);
-                setPlayingUri(null);
-              }
-              loadRecordings();
-              Alert.alert('✅ Removido', 'Arquivo excluído com sucesso.');
-            } catch (err) {
-              Alert.alert('Erro', 'Não foi possível excluir o arquivo.');
-            }
-          }
+    Alert.alert('🗑️ Apagar?', `Excluir ${name}? Esta ação é irreversível.`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { 
+        text: 'Apagar', style: 'destructive', onPress: async () => {
+          try {
+            await FileSystem.deleteAsync(uri);
+            if (playingUri === uri) { await sound?.unloadAsync(); setSound(null); setPlayingUri(null); }
+            await loadAllRecordings();
+            // Se estiver no modal, atualiza a visualização
+            if (showHistory) openHistory(); 
+            Alert.alert('✅ Removido', 'Arquivo excluído.');
+          } catch (err) { Alert.alert('Erro', 'Não foi possível excluir.'); }
         }
-      ]
-    );
+      }
+    ]);
   };
 
   const handlePressIn = () => {
     if (isRecording) return;
     setIsRecording(true);
     setCountdown(3);
-    
     const interval = setInterval(() => {
       setCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          startRecording();
-          return 0;
-        }
+        if (prev <= 1) { clearInterval(interval); startRecording(); return 0; }
         return prev - 1;
       });
     }, 1000);
   };
 
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-  };
+  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   const renderRecording = ({ item }: { item: Recording }) => (
     <View style={styles.recItem}>
       <View style={styles.recInfo}>
-        <Text style={styles.recDate}>📅 {item.date}</Text>
-        <Text style={styles.recName}>{item.name.replace('SOS_', '').replace('.m4a', '')}</Text>
+        <Text style={styles.recDate}>{item.date}</Text>
+        <Text style={styles.recName} numberOfLines={1}>{item.name}</Text>
       </View>
       <View style={styles.recActions}>
-        <TouchableOpacity 
-          style={[styles.actionBtn, playingUri === item.uri && styles.actionBtnActive]} 
-          onPress={() => togglePlay(item.uri)}
-        >
-          <Text style={styles.actionText}>{playingUri === item.uri ? '⏸' : '▶'}</Text>
+        <TouchableOpacity style={[styles.actBtn, playingUri === item.uri && styles.actBtnPlay]} onPress={() => togglePlay(item.uri)}>
+          <Text style={styles.actText}>{playingUri === item.uri ? '⏸' : '▶'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => shareFile(item.uri)}>
-          <Text style={styles.actionText}>📤</Text>
+        <TouchableOpacity style={styles.actBtn} onPress={() => shareFile(item.uri)}>
+          <Text style={styles.actText}>📤</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteRecording(item.uri, item.name)}>
-          <Text style={styles.deleteText}>🗑️</Text>
+        <TouchableOpacity style={styles.actBtnDel} onPress={() => deleteRecording(item.uri, item.name)}>
+          <Text style={styles.actTextDel}>🗑️</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -268,21 +254,46 @@ export default function Home() {
         )}
       </View>
 
-      {/* 📂 Lista de Gravações */}
-      <View style={styles.listContainer}>
-        <Text style={styles.listTitle}>📂 Minhas Gravações ({recordings.length})</Text>
-        {recordings.length === 0 ? (
-          <Text style={styles.emptyText}>Nenhuma gravação ainda. Ative o SOS para começar.</Text>
-        ) : (
-          <FlatList
-            data={recordings}
-            keyExtractor={item => item.uri}
-            renderItem={renderRecording}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-      </View>
+      {/* 📂 PASTA FECHADA (Contador) */}
+      <TouchableOpacity style={styles.folderBtn} onPress={openHistory} activeOpacity={0.7}>
+        <Text style={styles.folderIcon}>📂</Text>
+        <Text style={styles.folderText}>Minhas Gravações</Text>
+        <View style={styles.badge}><Text style={styles.badgeText}>{allRecordings.length}</Text></View>
+        <Text style={styles.arrow}>→</Text>
+      </TouchableOpacity>
+
+      {/* 🔲 MODAL COM PAGINAÇÃO */}
+      <Modal visible={showHistory} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>📂 Histórico de Gravações</Text>
+              <TouchableOpacity onPress={() => setShowHistory(false)} style={styles.closeBtn}>
+                <Text style={styles.closeText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {allRecordings.length === 0 ? (
+              <Text style={styles.emptyText}>Nenhuma gravação encontrada.</Text>
+            ) : (
+              <>
+                <FlatList
+                  data={visibleRecordings}
+                  keyExtractor={item => item.uri}
+                  renderItem={renderRecording}
+                  contentContainerStyle={styles.listContent}
+                  keyboardShouldPersistTaps="handled"
+                />
+                {hasMore && (
+                  <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMore}>
+                    <Text style={styles.loadMoreText}>Carregar mais 5 gravações</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.grid}>
         <View style={styles.card}><Text style={styles.cIcon}>⚖️</Text><Text style={styles.cTitle}>Meus Direitos</Text></View>
@@ -307,33 +318,41 @@ const styles = StyleSheet.create({
   label: { color: '#fff', fontSize: 22, fontWeight: '900' },
   sub: { color: 'rgba(255,255,255,0.6)', fontSize: 10, marginTop: 4 },
   bigNum: { color: '#fff', fontSize: 48, fontWeight: '900' },
-  
   stopBtn: { backgroundColor: '#FF5252', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 30 },
   stopText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   
-  listContainer: { flex: 1, paddingHorizontal: 16, paddingTop: 8 },
-  listTitle: { color: '#81C784', fontSize: 16, fontWeight: '700', marginBottom: 12, paddingLeft: 4 },
-  listContent: { paddingBottom: 20 },
-  emptyText: { color: '#666', textAlign: 'center', marginTop: 20, fontStyle: 'italic' },
+  folderBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: 20, marginTop: 8, padding: 16, backgroundColor: '#1A1A1A', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  folderIcon: { fontSize: 20, marginRight: 12 },
+  folderText: { color: '#fff', fontSize: 16, fontWeight: '600', flex: 1 },
+  badge: { backgroundColor: '#2196F3', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginRight: 10 },
+  badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  arrow: { color: '#666', fontSize: 18 },
   
-  recItem: {
-    backgroundColor: '#1A1A1A', borderRadius: 12, padding: 12, marginBottom: 10,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)'
-  },
-  recInfo: { flex: 1, marginRight: 8 },
-  recDate: { color: '#aaa', fontSize: 11, marginBottom: 2 },
-  recName: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#151515', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%', padding: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  closeBtn: { padding: 8 },
+  closeText: { color: '#aaa', fontSize: 20 },
+  listContent: { paddingBottom: 10 },
+  emptyText: { color: '#666', textAlign: 'center', marginVertical: 30 },
+  
+  recItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  recInfo: { flex: 1, marginRight: 10 },
+  recDate: { color: '#888', fontSize: 11, marginBottom: 2 },
+  recName: { color: '#ddd', fontSize: 13, fontWeight: '500' },
   recActions: { flexDirection: 'row', gap: 8 },
   
-  actionBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#2196F3', alignItems: 'center', justifyContent: 'center' },
-  actionBtnActive: { backgroundColor: '#FF9800' },
-  actionText: { color: '#fff', fontSize: 14 },
+  actBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#2196F3', alignItems: 'center', justifyContent: 'center' },
+  actBtnPlay: { backgroundColor: '#FF9800' },
+  actBtnDel: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,82,82,0.15)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FF5252' },
+  actText: { color: '#fff', fontSize: 14 },
+  actTextDel: { fontSize: 14 },
   
-  deleteBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,82,82,0.2)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FF5252' },
-  deleteText: { fontSize: 14 },
+  loadMoreBtn: { marginTop: 16, padding: 12, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, alignItems: 'center' },
+  loadMoreText: { color: '#81C784', fontWeight: '600' },
   
-  grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8, marginTop: 'auto' },
   card: { width: '48%', backgroundColor: '#1E1E1E', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   cIcon: { fontSize: 18, marginBottom: 4 },
   cTitle: { color: '#F0F0F0', fontSize: 13, fontWeight: '700' },

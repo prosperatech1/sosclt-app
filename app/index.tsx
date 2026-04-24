@@ -1,41 +1,37 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Linking, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Linking } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
   const [countdown, setCountdown] = useState(3);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [recording, setRecording] = useState<any>(null);
   const [audioUri, setAudioUri] = useState<string | null>(null);
-  const countdownRef = useRef<NodeJS.Timeout | null>(null);
+  const [recordingTime, setRecordingTime] = useState(0);
 
   useEffect(() => {
-    requestMicrophonePermission();
+    requestPermission();
     return () => {
-      if (countdownRef.current) clearInterval(countdownRef.current);
-      stopRecording();
+      if (recording) {
+        recording.stopAndUnloadAsync().catch(() => {});
+      }
     };
   }, []);
 
-  const requestMicrophonePermission = async () => {
+  const requestPermission = async () => {
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
-          'Permissão necessária',
-          'O SOSCLT precisa acessar o microfone para gravar em emergências.',
-          [{ text: 'Entendi' }]
-        );
+        Alert.alert('Permissão negada', 'Ative o microfone nas configurações para usar o SOS.');
       }
-    } catch (err) {
-      console.error('Erro ao pedir permissão:', err);
+    } catch (e) {
+      console.log('Erro permissão:', e);
     }
   };
 
   const startRecording = async () => {
     try {
-      await Audio.requestPermissionsAsync();
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -44,63 +40,94 @@ export default function Home() {
       const { recording: newRecording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
+      
       setRecording(newRecording);
-      console.log('Gravação iniciada');
-    } catch (err) {
-      console.error('Erro ao iniciar gravação:', err);
-      Alert.alert('Erro', 'Não foi possível iniciar a gravação.');
+      setIsRecording(true);
+      setRecordingTime(0);
+      console.log('✅ Gravação iniciada com sucesso');
+      
+      // Contador visual
+      const timer = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+      
+      // Salva referência do timer no objeto recording
+      (newRecording as any)._timer = timer;
+      
+    } catch (e) {
+      console.log('❌ Erro ao iniciar:', e);
+      Alert.alert('Erro', 'Não foi possível iniciar a gravação. Tente novamente.');
+      setIsRecording(false);
     }
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
+    if (!recording) {
+      console.log('⚠️ recording é null, não há nada para parar');
+      setIsRecording(false);
+      setCountdown(3);
+      return;
+    }
+    
     try {
+      // Para o timer visual
+      if ((recording as any)._timer) {
+        clearInterval((recording as any)._timer);
+      }
+      
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
+      
       setAudioUri(uri);
       setRecording(null);
-      console.log('Gravação salva em:', uri);
+      setIsRecording(false);
+      setCountdown(3);
+      setRecordingTime(0);
+      
+      console.log('✅ Gravação salva em:', uri);
       
       if (uri) {
         Alert.alert(
-          '✅ Gravação salva!',
-          'Deseja enviar para seu contato de emergência?',
+          '✅ Gravação concluída!',
+          'Arquivo salvo com sucesso. Deseja enviar?',
           [
-            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Depois', style: 'cancel' },
             { text: 'Enviar WhatsApp', onPress: () => sendViaWhatsApp(uri) }
           ]
         );
       }
-    } catch (err) {
-      console.error('Erro ao parar gravação:', err);
+    } catch (e) {
+      console.log('❌ Erro ao parar:', e);
+      Alert.alert('Erro', 'Não foi possível salvar a gravação.');
+      setIsRecording(false);
+      setCountdown(3);
     }
   };
 
   const sendViaWhatsApp = (uri: string) => {
-    const phoneNumber = '5511999999999'; // Troque pelo número do contato
+    const phoneNumber = '5511999999999';
     const message = `🚨 SOSCLT - Emergência\n\nGravação de áudio salva.`;
     const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
     
     Linking.canOpenURL(url)
       .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          Alert.alert('WhatsApp não instalado', 'Instale o WhatsApp para enviar.');
-        }
+        if (supported) return Linking.openURL(url);
+        else Alert.alert('WhatsApp', 'App não encontrado.');
       })
-      .catch((err) => console.error('Erro ao abrir WhatsApp:', err));
+      .catch(() => Alert.alert('Erro', 'Não foi possível abrir o WhatsApp.'));
   };
 
   const handleSOSPressIn = () => {
+    if (isRecording) return; // Evita cliques repetidos
+    
     setIsRecording(true);
     setCountdown(3);
     
-    countdownRef.current = setInterval(() => {
-      setCountdown((prev) => {
+    const interval = setInterval(() => {
+      setCountdown(prev => {
         if (prev <= 1) {
-          if (countdownRef.current) clearInterval(countdownRef.current);
-          activateSOS();
+          clearInterval(interval);
+          startRecording();
           return 0;
         }
         return prev - 1;
@@ -108,39 +135,27 @@ export default function Home() {
     }, 1000);
   };
 
-  const handleSOSPressOut = () => {
-    if (countdown > 0 && countdownRef.current) {
-      clearInterval(countdownRef.current);
-      setIsRecording(false);
-      setCountdown(3);
-    }
-  };
-
-  const activateSOS = async () => {
-    Vibration.vibrate([0, 200, 100, 200]);
-    await startRecording();
-    
-    Alert.alert(
-      '🆘 SOS ATIVADO',
-      'Gravando áudio. Mantenha o app aberto.',
-      [{ text: 'Parar', onPress: stopRecording }]
-    );
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.greeting}>Olá, Carlos.</Text>
         <Text style={styles.status}>Você está protegido.</Text>
       </View>
 
+      {/* Botão SOS */}
       <View style={styles.sosContainer}>
         <TouchableOpacity 
-          style={[styles.sosButton, isRecording && styles.sosButtonActive]}
+          style={[styles.sosButton, isRecording && countdown === 0 && styles.sosButtonRecording]}
           onPressIn={handleSOSPressIn}
-          onPressOut={handleSOSPressOut}
           disabled={isRecording && countdown === 0}
           activeOpacity={0.8}
         >
@@ -153,8 +168,8 @@ export default function Home() {
           ) : isRecording && countdown === 0 ? (
             <>
               <Text style={styles.sosIcon}>🔴</Text>
-              <Text style={styles.sosLabel}>GRAVANDO...</Text>
-              <Text style={styles.sosSub}>Toque em "Parar" para finalizar</Text>
+              <Text style={styles.sosLabel}>{formatTime(recordingTime)}</Text>
+              <Text style={styles.sosSub}>Gravando... Toque para PARAR</Text>
             </>
           ) : (
             <>
@@ -164,18 +179,30 @@ export default function Home() {
             </>
           )}
         </TouchableOpacity>
+        
+        {/* Botão de parar visível na tela (mais confiável que Alert) */}
+        {isRecording && countdown === 0 && (
+          <TouchableOpacity 
+            style={styles.stopButton} 
+            onPress={stopRecording}
+          >
+            <Text style={styles.stopText}>⏹️ PARAR GRAVAÇÃO</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
+      {/* Status da gravação */}
       {audioUri && (
         <View style={styles.statusCard}>
           <Text style={styles.statusIcon}>✅</Text>
           <Text style={styles.statusText}>Gravação salva!</Text>
           <TouchableOpacity onPress={() => sendViaWhatsApp(audioUri!)}>
-            <Text style={styles.sendButton}>Enviar para WhatsApp →</Text>
+            <Text style={styles.sendButton}>Enviar WhatsApp →</Text>
           </TouchableOpacity>
         </View>
       )}
 
+      {/* Grade de Ferramentas */}
       <View style={styles.grid}>
         <View style={styles.card}>
           <Text style={styles.cardIcon}>⚖️</Text>
@@ -185,7 +212,7 @@ export default function Home() {
         <View style={styles.card}>
           <Text style={styles.cardIcon}>🧮</Text>
           <Text style={styles.cardTitle}>Calculadora</Text>
-          <Text style={styles.cardSub}>Férias · 13° · Extras</Text>
+          <Text style={styles.cardSub}>Férias · 13°</Text>
         </View>
         <View style={styles.card}>
           <Text style={styles.cardIcon}>👨‍⚖️</Text>
@@ -198,6 +225,7 @@ export default function Home() {
         </View>
       </View>
 
+      {/* Barra de Diagnóstico */}
       <View style={styles.diagBar}>
         <View style={styles.diagTop}>
           <Text style={styles.diagTitle}>📋 Diagnóstico trabalhista</Text>
@@ -209,6 +237,7 @@ export default function Home() {
         <Text style={styles.diagSub}>Continue para ver se está sendo lesado →</Text>
       </View>
 
+      {/* Alerta */}
       <View style={styles.alert}>
         <Text style={styles.alertIcon}>⚠️</Text>
         <Text style={styles.alertText}>
@@ -229,15 +258,21 @@ const styles = StyleSheet.create({
   sosContainer: { alignItems: 'center', padding: 16 },
   sosButton: {
     width: '90%', backgroundColor: '#C62828', borderRadius: 20,
-    padding: 24, alignItems: 'center',
+    padding: 24, alignItems: 'center', marginBottom: 12,
     shadowColor: '#C62828', shadowOffset: {width:0, height:4},
     shadowOpacity: 0.5, shadowRadius: 8, elevation: 6
   },
-  sosButtonActive: { backgroundColor: '#8B0000' },
+  sosButtonRecording: { backgroundColor: '#8B0000' },
   sosIcon: { fontSize: 32, marginBottom: 8 },
   sosLabel: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 1 },
   sosSub: { color: 'rgba(255,255,255,0.7)', fontSize: 10, marginTop: 4, fontStyle: 'italic' },
   sosCountdown: { color: '#fff', fontSize: 48, fontWeight: '900' },
+  
+  stopButton: {
+    backgroundColor: '#FF5252', paddingHorizontal: 24, paddingVertical: 12,
+    borderRadius: 30, marginTop: 8
+  },
+  stopText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   
   statusCard: {
     margin: 16, padding: 14, backgroundColor: '#1E3A1E',

@@ -5,36 +5,19 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "splash": {
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.sosclt.app"
-    },
+    "splash": { "resizeMode": "contain", "backgroundColor": "#ffffff" },
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.sosclt.app" },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#ffffff"
-      },
+      "adaptiveIcon": { "backgroundColor": "#ffffff" },
       "package": "com.sosclt.app",
       "permissions": [
         "RECORD_AUDIO",
-        "WRITE_EXTERNAL_STORAGE",
-        "READ_EXTERNAL_STORAGE",
-        "READ_MEDIA_AUDIO"
+        "android.permission.RECORD_AUDIO"
       ]
     },
-    "web": {
-      "favicon": ""
-    },
     "extra": {
-      "eas": {
-        "projectId": "76730309-61c1-4dda-b6c1-eb3812b5f1ee"
-      }
+      "eas": { "projectId": "76730309-61c1-4dda-b6c1-eb3812b5f1ee" }
     }
   }
 }

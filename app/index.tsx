@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Platform } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Linking, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
-import * as Linking from 'expo-linking';
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
@@ -11,7 +10,6 @@ export default function Home() {
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Pedir permissão do microfone ao iniciar
   useEffect(() => {
     requestMicrophonePermission();
     return () => {
@@ -22,12 +20,11 @@ export default function Home() {
 
   const requestMicrophonePermission = async () => {
     try {
-      // expo-av pede a permissão diretamente
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert(
           'Permissão necessária',
-          'O SOSCLT precisa acessar o microfone para gravar em emergências. Ative nas configurações.',
+          'O SOSCLT precisa acessar o microfone para gravar em emergências.',
           [{ text: 'Entendi' }]
         );
       }
@@ -70,10 +67,7 @@ export default function Home() {
           'Deseja enviar para seu contato de emergência?',
           [
             { text: 'Cancelar', style: 'cancel' },
-            { 
-              text: 'Enviar WhatsApp', 
-              onPress: () => sendViaWhatsApp(uri) 
-            }
+            { text: 'Enviar WhatsApp', onPress: () => sendViaWhatsApp(uri) }
           ]
         );
       }
@@ -84,7 +78,7 @@ export default function Home() {
 
   const sendViaWhatsApp = (uri: string) => {
     const phoneNumber = '5511999999999'; // Troque pelo número do contato
-    const message = `🚨 SOSCLT - Emergência\n\nGravação de áudio salva.\nLocal: ${uri || 'Disponível no app'}`;
+    const message = `🚨 SOSCLT - Emergência\n\nGravação de áudio salva.`;
     const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
     
     Linking.canOpenURL(url)
@@ -92,7 +86,7 @@ export default function Home() {
         if (supported) {
           return Linking.openURL(url);
         } else {
-          Alert.alert('WhatsApp não instalado', 'Instale o WhatsApp para enviar a gravação.');
+          Alert.alert('WhatsApp não instalado', 'Instale o WhatsApp para enviar.');
         }
       })
       .catch((err) => console.error('Erro ao abrir WhatsApp:', err));
@@ -137,13 +131,11 @@ export default function Home() {
     <View style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.greeting}>Olá, Carlos.</Text>
         <Text style={styles.status}>Você está protegido.</Text>
       </View>
 
-      {/* Botão SOS */}
       <View style={styles.sosContainer}>
         <TouchableOpacity 
           style={[styles.sosButton, isRecording && styles.sosButtonActive]}
@@ -174,7 +166,6 @@ export default function Home() {
         </TouchableOpacity>
       </View>
 
-      {/* Status da gravação */}
       {audioUri && (
         <View style={styles.statusCard}>
           <Text style={styles.statusIcon}>✅</Text>
@@ -185,7 +176,6 @@ export default function Home() {
         </View>
       )}
 
-      {/* Grade de Ferramentas */}
       <View style={styles.grid}>
         <View style={styles.card}>
           <Text style={styles.cardIcon}>⚖️</Text>
@@ -199,8 +189,7 @@ export default function Home() {
         </View>
         <View style={styles.card}>
           <Text style={styles.cardIcon}>👨‍⚖️</Text>
-          <Text style={styles.cardTitle}>Jurídico</Text>
-          <Text style={[styles.cardSub, {color: '#FFB74D'}]}>⭐ Premium</Text>
+          <Text style={[styles.cardSub, {color: '#FFB74D'}]}>Jurídico ⭐</Text>
         </View>
         <View style={styles.card}>
           <Text style={styles.cardIcon}>📄</Text>
@@ -209,7 +198,6 @@ export default function Home() {
         </View>
       </View>
 
-      {/* Barra de Diagnóstico */}
       <View style={styles.diagBar}>
         <View style={styles.diagTop}>
           <Text style={styles.diagTitle}>📋 Diagnóstico trabalhista</Text>
@@ -221,7 +209,6 @@ export default function Home() {
         <Text style={styles.diagSub}>Continue para ver se está sendo lesado →</Text>
       </View>
 
-      {/* Alerta */}
       <View style={styles.alert}>
         <Text style={styles.alertIcon}>⚠️</Text>
         <Text style={styles.alertText}>

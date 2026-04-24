@@ -11,6 +11,8 @@ export default function Home() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [savedUri, setSavedUri] = useState<string | null>(null);
   const [timer, setTimer] = useState(0);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
   const timerRef = useRef<any>(null);
 
   useEffect(() => {
@@ -20,7 +22,10 @@ export default function Home() {
         Alert.alert('Permissão Negada', 'Ative o microfone nas configurações do app.');
       }
     })();
-    return () => stopRecordingSilently();
+    return () => {
+      stopRecordingSilently();
+      if (sound) sound.unloadAsync().catch(() => {});
+    };
   }, []);
 
   const stopRecordingSilently = async () => {
@@ -64,10 +69,8 @@ export default function Home() {
       const tempUri = recording.getURI();
       
       const fileName = `SOS_${Date.now()}.m4a`;
-      // 🔽 AQUI ESTÁ A MUDANÇA: salva na pasta Downloads (visível)
-      const finalPath = Platform.OS === 'android'
-        ? FileSystem.DownloadDirectoryUri + '/' + fileName
-        : FileSystem.documentDirectory + fileName;
+      // ✅ Caminho estável e testado (pasta interna do app)
+      const finalPath = FileSystem.documentDirectory + fileName;
       
       await FileSystem.copyAsync({ from: tempUri!, to: finalPath });
       setSavedUri(finalPath);
@@ -76,7 +79,7 @@ export default function Home() {
       
       Alert.alert(
         '✅ Gravação Salva!',
-        'Áudio guardado na pasta Downloads do seu celular.',
+        'Áudio guardado com segurança na memória do app.',
         [{ text: 'OK' }]
       );
     } catch (err) {
@@ -87,6 +90,33 @@ export default function Home() {
       setIsRecording(false);
       setCountdown(3);
       setTimer(0);
+    }
+  };
+
+  const playAudio = async () => {
+    if (!savedUri) return;
+    try {
+      if (sound) {
+        await sound.unloadAsync();
+        setSound(null);
+        setIsPlaying(false);
+        return;
+      }
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: savedUri },
+        { shouldPlay: true }
+      );
+      setSound(newSound);
+      setIsPlaying(true);
+      
+      newSound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          setIsPlaying(false);
+          setSound(null);
+        }
+      });
+    } catch (err) {
+      Alert.alert('Erro', 'Não foi possível reproduzir o áudio.');
     }
   };
 
@@ -104,8 +134,7 @@ export default function Home() {
         UTI: 'public.audio'
       });
     } catch (err) {
-      console.error('Erro ao compartilhar:', err);
-      Alert.alert('Erro', 'Não foi possível abrir o menu de compartilhamento.');
+      Alert.alert('Erro', 'Não foi possível compartilhar.');
     }
   };
 
@@ -165,14 +194,19 @@ export default function Home() {
 
       {savedUri && (
         <View style={styles.savedCard}>
-          <Text style={styles.savedIcon}>📂</Text>
+          <Text style={styles.savedIcon}>🎧</Text>
           <View style={{flex: 1}}>
             <Text style={styles.savedTitle}>Áudio salvo com sucesso!</Text>
-            <Text style={styles.savedSub}>Encontre na pasta Downloads</Text>
+            <Text style={styles.savedSub}>Toque para ouvir ou enviar</Text>
           </View>
-          <TouchableOpacity style={styles.shareBtn} onPress={shareFile}>
-            <Text style={styles.shareText}>Enviar</Text>
-          </TouchableOpacity>
+          <View style={{flexDirection: 'row', gap: 8}}>
+            <TouchableOpacity style={[styles.actionBtn, isPlaying && styles.actionBtnActive]} onPress={playAudio}>
+              <Text style={styles.actionText}>{isPlaying ? '⏹ Parar' : '▶ Ouvir'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.shareBtn} onPress={shareFile}>
+              <Text style={styles.shareText}>Enviar</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -207,6 +241,9 @@ const styles = StyleSheet.create({
   savedIcon: { fontSize: 24 },
   savedTitle: { color: '#81C784', fontWeight: '600' },
   savedSub: { color: '#aaa', fontSize: 10 },
+  actionBtn: { backgroundColor: '#2196F3', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  actionBtnActive: { backgroundColor: '#FF5252' },
+  actionText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   shareBtn: { backgroundColor: '#FFB74D', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   shareText: { color: '#000', fontWeight: '700', fontSize: 12 },
   

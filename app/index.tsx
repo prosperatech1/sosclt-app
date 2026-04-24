@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Linking } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Linking, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
 
@@ -23,7 +23,7 @@ export default function Home() {
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permissão negada', 'Ative o microfone nas configurações para usar o SOS.');
+        Alert.alert('Permissão necessária', 'Ative o microfone nas configurações para usar o SOS.');
       }
     } catch (e) {
       console.log('Erro permissão:', e);
@@ -44,33 +44,28 @@ export default function Home() {
       setRecording(newRecording);
       setIsRecording(true);
       setRecordingTime(0);
-      console.log('✅ Gravação iniciada com sucesso');
+      console.log('✅ Gravação iniciada');
       
-      // Contador visual
       const timer = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
-      
-      // Salva referência do timer no objeto recording
       (newRecording as any)._timer = timer;
       
     } catch (e) {
       console.log('❌ Erro ao iniciar:', e);
-      Alert.alert('Erro', 'Não foi possível iniciar a gravação. Tente novamente.');
+      Alert.alert('Erro', 'Não foi possível iniciar a gravação.');
       setIsRecording(false);
     }
   };
 
   const stopRecording = async () => {
     if (!recording) {
-      console.log('⚠️ recording é null, não há nada para parar');
       setIsRecording(false);
       setCountdown(3);
       return;
     }
     
     try {
-      // Para o timer visual
       if ((recording as any)._timer) {
         clearInterval((recording as any)._timer);
       }
@@ -84,15 +79,25 @@ export default function Home() {
       setCountdown(3);
       setRecordingTime(0);
       
-      console.log('✅ Gravação salva em:', uri);
+      console.log('✅ Arquivo salvo em:', uri);
       
+      // Alert com 3 opções: Salvar, Enviar ou Cancelar
       if (uri) {
         Alert.alert(
-          '✅ Gravação concluída!',
-          'Arquivo salvo com sucesso. Deseja enviar?',
+          '✅ Gravação salva!',
+          'O arquivo foi guardado no seu celular.',
           [
-            { text: 'Depois', style: 'cancel' },
-            { text: 'Enviar WhatsApp', onPress: () => sendViaWhatsApp(uri) }
+            { 
+              text: 'Apenas Salvar', 
+              style: 'default',
+              onPress: () => console.log('Salvo sem enviar')
+            },
+            { 
+              text: 'Enviar WhatsApp', 
+              style: 'default',
+              onPress: () => sendViaWhatsApp(uri) 
+            },
+            { text: 'Cancelar', style: 'cancel' }
           ]
         );
       }
@@ -105,20 +110,35 @@ export default function Home() {
   };
 
   const sendViaWhatsApp = (uri: string) => {
-    const phoneNumber = '5511999999999';
-    const message = `🚨 SOSCLT - Emergência\n\nGravação de áudio salva.`;
-    const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
+    // Número do contato (formato internacional: 55 + DDD + número)
+    const phoneNumber = '5511999999999'; 
+    
+    // Mensagem
+    const message = `🚨 SOSCLT - Emergência\n\nGravação de áudio salva no dispositivo.`;
+    
+    // URL universal que funciona em app e navegador
+    const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
     
     Linking.canOpenURL(url)
       .then((supported) => {
-        if (supported) return Linking.openURL(url);
-        else Alert.alert('WhatsApp', 'App não encontrado.');
+        if (supported) {
+          return Linking.openURL(url);
+        } else {
+          // Fallback: tenta abrir o app direto
+          return Linking.openURL('whatsapp://send?text=' + encodeURIComponent(message));
+        }
       })
-      .catch(() => Alert.alert('Erro', 'Não foi possível abrir o WhatsApp.'));
+      .catch((err) => {
+        console.log('Erro WhatsApp:', err);
+        Alert.alert(
+          'Tudo certo!', 
+          'Gravação salva com sucesso! Você pode compartilhar o arquivo manualmente depois.'
+        );
+      });
   };
 
   const handleSOSPressIn = () => {
-    if (isRecording) return; // Evita cliques repetidos
+    if (isRecording) return;
     
     setIsRecording(true);
     setCountdown(3);
@@ -180,12 +200,9 @@ export default function Home() {
           )}
         </TouchableOpacity>
         
-        {/* Botão de parar visível na tela (mais confiável que Alert) */}
+        {/* Botão de parar visível */}
         {isRecording && countdown === 0 && (
-          <TouchableOpacity 
-            style={styles.stopButton} 
-            onPress={stopRecording}
-          >
+          <TouchableOpacity style={styles.stopButton} onPress={stopRecording}>
             <Text style={styles.stopText}>⏹️ PARAR GRAVAÇÃO</Text>
           </TouchableOpacity>
         )}
@@ -195,9 +212,9 @@ export default function Home() {
       {audioUri && (
         <View style={styles.statusCard}>
           <Text style={styles.statusIcon}>✅</Text>
-          <Text style={styles.statusText}>Gravação salva!</Text>
+          <Text style={styles.statusText}>Arquivo salvo no celular!</Text>
           <TouchableOpacity onPress={() => sendViaWhatsApp(audioUri!)}>
-            <Text style={styles.sendButton}>Enviar WhatsApp →</Text>
+            <Text style={styles.sendButton}>Compartilhar →</Text>
           </TouchableOpacity>
         </View>
       )}

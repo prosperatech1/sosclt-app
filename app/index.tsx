@@ -1,20 +1,116 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Audio } from 'expo-av';
+import * as Permissions from 'expo-permissions';
+import * as Linking from 'expo-linking';
+import * as FileSystem from 'expo-file-system';
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
   const [countdown, setCountdown] = useState(3);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleSOSPress = () => {
-    // Inicia contagem de 3 segundos
+  // Pedir permissão do microfone ao iniciar
+  useEffect(() => {
+    requestMicrophonePermission();
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      stopRecording();
+    };
+  }, []);
+
+  const requestMicrophonePermission = async () => {
+    try {
+      const { status } = await Permissions.askAsync(Permissions.AUDIO_RECORDING);
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permissão necessária',
+          'O SOSCLT precisa acessar o microfone para gravar em emergências. Ative nas configurações.',
+          [{ text: 'Entendi' }]
+        );
+      }
+    } catch (err) {
+      console.error('Erro ao pedir permissão:', err);
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording: newRecording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      setRecording(newRecording);
+      console.log('Gravação iniciada');
+    } catch (err) {
+      console.error('Erro ao iniciar gravação:', err);
+      Alert.alert('Erro', 'Não foi possível iniciar a gravação.');
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setAudioUri(uri);
+      setRecording(null);
+      console.log('Gravação salva em:', uri);
+      
+      // Mostrar opção de enviar
+      if (uri) {
+        Alert.alert(
+          '✅ Gravação salva!',
+          'Deseja enviar para seu contato de emergência?',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { 
+              text: 'Enviar WhatsApp', 
+              onPress: () => sendViaWhatsApp(uri) 
+            }
+          ]
+        );
+      }
+    } catch (err) {
+      console.error('Erro ao parar gravação:', err);
+    }
+  };
+
+  const sendViaWhatsApp = (uri: string) => {
+    // Nota: Em produção, você faria upload para Supabase aqui
+    // Por enquanto, simulamos com uma mensagem
+    const phoneNumber = '5511999999999'; // Troque pelo número do contato
+    const message = `🚨 SOSCLT - Emergência\n\nGravação de áudio salva.\nLocal: ${uri || 'Disponível no app'}`;
+    const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
+    
+    Linking.canOpenURL(url)
+      .then((supported) => {
+        if (supported) {
+          return Linking.openURL(url);
+        } else {
+          Alert.alert('WhatsApp não instalado', 'Instale o WhatsApp para enviar a gravação.');
+        }
+      })
+      .catch((err) => console.error('Erro ao abrir WhatsApp:', err));
+  };
+
+  const handleSOSPressIn = () => {
+    // Inicia contagem ao pressionar
     setIsRecording(true);
     setCountdown(3);
     
-    const interval = setInterval(() => {
+    countdownRef.current = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          clearInterval(interval);
+          if (countdownRef.current) clearInterval(countdownRef.current);
           activateSOS();
           return 0;
         }
@@ -23,12 +119,24 @@ export default function Home() {
     }, 1000);
   };
 
-  const activateSOS = () => {
+  const handleSOSPressOut = () => {
+    // Se soltar antes de 3s, cancela
+    if (countdown > 0 && countdownRef.current) {
+      clearInterval(countdownRef.current);
+      setIsRecording(false);
+      setCountdown(3);
+    }
+  };
+
+  const activateSOS = async () => {
     Vibration.vibrate([0, 200, 100, 200]);
+    await startRecording();
+    
+    // Notificação visual
     Alert.alert(
-      '🆘 SOS Ativado!',
-      'Gravação iniciada. Mantenha o app aberto para sua segurança.',
-      [{ text: 'Entendi', onPress: () => setIsRecording(false) }]
+      '🆘 SOS ATIVADO',
+      'Gravando áudio. Mantenha o app aberto.',
+      [{ text: 'Parar', onPress: stopRecording }]
     );
   };
 
@@ -38,7 +146,7 @@ export default function Home() {
       
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.greeting}>Olá, Carlos e Kauan.</Text>
+        <Text style={styles.greeting}>Olá, Carlos.</Text>
         <Text style={styles.status}>Você está protegido.</Text>
       </View>
 
@@ -46,11 +154,23 @@ export default function Home() {
       <View style={styles.sosContainer}>
         <TouchableOpacity 
           style={[styles.sosButton, isRecording && styles.sosButtonActive]}
-          onPress={handleSOSPress}
-          disabled={isRecording}
+          onPressIn={handleSOSPressIn}
+          onPressOut={handleSOSPressOut}
+          disabled={isRecording && countdown === 0}
+          activeOpacity={0.8}
         >
-          {isRecording ? (
-            <Text style={styles.sosCountdown}>{countdown}</Text>
+          {isRecording && countdown > 0 ? (
+            <>
+              <Text style={styles.sosIcon}>⏱️</Text>
+              <Text style={styles.sosCountdown}>{countdown}</Text>
+              <Text style={styles.sosSub}>Solte para cancelar</Text>
+            </>
+          ) : isRecording && countdown === 0 ? (
+            <>
+              <Text style={styles.sosIcon}>🔴</Text>
+              <Text style={styles.sosLabel}>GRAVANDO...</Text>
+              <Text style={styles.sosSub}>Toque em "Parar" para finalizar</Text>
+            </>
           ) : (
             <>
               <Text style={styles.sosIcon}>🆘</Text>
@@ -60,6 +180,17 @@ export default function Home() {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Status da gravação */}
+      {audioUri && (
+        <View style={styles.statusCard}>
+          <Text style={styles.statusIcon}>✅</Text>
+          <Text style={styles.statusText}>Gravação salva!</Text>
+          <TouchableOpacity onPress={() => sendViaWhatsApp(audioUri!)}>
+            <Text style={styles.sendButton}>Enviar para WhatsApp →</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Grade de Ferramentas */}
       <View style={styles.grid}>
@@ -112,7 +243,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F0F0F' },
   header: { padding: 20, paddingTop: 50 },
-  greeting: { color: '#fff', fontSize: 18, fontFamily: 'System' },
+  greeting: { color: '#fff', fontSize: 18 },
   status: { color: '#81C784', fontSize: 14, fontStyle: 'italic', marginTop: 4 },
   
   sosContainer: { alignItems: 'center', padding: 16 },
@@ -127,6 +258,15 @@ const styles = StyleSheet.create({
   sosLabel: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 1 },
   sosSub: { color: 'rgba(255,255,255,0.7)', fontSize: 10, marginTop: 4, fontStyle: 'italic' },
   sosCountdown: { color: '#fff', fontSize: 48, fontWeight: '900' },
+  
+  statusCard: {
+    margin: 16, padding: 14, backgroundColor: '#1E3A1E',
+    borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderColor: '#2E7D32', borderWidth: 1
+  },
+  statusIcon: { fontSize: 20 },
+  statusText: { color: '#81C784', flex: 1, fontWeight: '600' },
+  sendButton: { color: '#FFB74D', fontWeight: '700' },
   
   grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8 },
   card: {

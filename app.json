@@ -14,10 +14,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.sosclt.app",
-      "infoPlist": {
-        "NSMicrophoneUsageDescription": "Este app precisa acessar o microfone para gravar áudio."
-      }
+      "bundleIdentifier": "com.sosclt.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -26,8 +23,9 @@
       "package": "com.sosclt.app",
       "permissions": [
         "RECORD_AUDIO",
-        "FOREGROUND_SERVICE",
-        "WAKE_LOCK"
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_EXTERNAL_STORAGE",
+        "READ_MEDIA_AUDIO"
       ]
     },
     "web": {

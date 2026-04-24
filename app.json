@@ -4,12 +4,10 @@
     "slug": "sosclt",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FF0000"
+      "backgroundColor": "#ffffff"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -18,16 +16,12 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.sosclt.app",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Este app precisa acessar o microfone para gravar áudio em situações de emergência.",
-        "UIBackgroundModes": [
-          "audio"
-        ]
+        "NSMicrophoneUsageDescription": "Este app precisa acessar o microfone para gravar áudio."
       }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FF0000"
+        "backgroundColor": "#ffffff"
       },
       "package": "com.sosclt.app",
       "permissions": [
@@ -37,7 +31,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": ""
     },
     "extra": {
       "eas": {

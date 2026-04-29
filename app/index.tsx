@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  StyleSheet, Text, View, TouchableOpacity, Alert, Vibration, 
-  Modal, FlatList 
+  StyleSheet, Text, View, TouchableOpacity, Alert, Modal, FlatList, 
+  TextInput, ActivityIndicator, KeyboardAvoidingView, Platform 
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
@@ -9,7 +9,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Location from 'expo-location';
 import * as Crypto from 'expo-crypto';
-import { supabase } from '../services/supabase'; // 🔑 Importando a conexão
+import { supabase } from '../services/supabase';
 
 type Recording = {
   name: string;
@@ -19,7 +19,84 @@ type Recording = {
 
 const PAGE_SIZE = 5;
 
-export default function Home() {
+export default function App() {
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  
+  // Se não houver sessão, mostra tela de Login
+  if (!session) {
+    return <AuthScreen setSession={setSession} />;
+  }
+
+  // Se houver sessão, mostra o App Principal (SOS)
+  return <HomeScreen session={session} setSession={setSession} />;
+}
+
+// --- TELA DE LOGIN / CADASTRO ---
+function AuthScreen({ setSession }: any) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLogin, setIsLogin] = useState(true);
+  const [loading, setLoading] = useState(false);
+
+  const handleAuth = async () => {
+    setLoading(true);
+    try {
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        Alert.alert('Sucesso', 'Conta criada! Faça login.');
+        setIsLogin(true);
+      }
+    } catch (error: any) {
+      Alert.alert('Erro', error.message || 'Falha na autenticação');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <View style={styles.authContainer}>
+      <StatusBar style="light" />
+      <Text style={styles.authTitle}>🛡️ SOSCLT</Text>
+      <Text style={styles.authSubtitle}>{isLogin ? 'Entrar na sua conta' : 'Criar nova conta'}</Text>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Email"
+        placeholderTextColor="#666"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Senha"
+        placeholderTextColor="#666"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+      />
+
+      <TouchableOpacity style={styles.authBtn} onPress={handleAuth} disabled={loading}>
+        {loading ? <ActivityIndicator color="#fff" /> : (
+          <Text style={styles.authBtnText}>{isLogin ? 'ENTRAR' : 'CADASTRAR'}</Text>
+        )}
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={() => setIsLogin(!isLogin)} style={{ marginTop: 15 }}>
+        <Text style={styles.authLink}>{isLogin ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Entrar'}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// --- TELA PRINCIPAL (SOS) ---
+function HomeScreen({ session, setSession }: any) {
   const [isRecording, setIsRecording] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -37,11 +114,11 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') Alert.alert('Permissão Negada', 'Ative o microfone.');
-      loadAllRecordings();
-    })();
+    // Verifica sessão ativa
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+    
+    loadAllRecordings();
     return () => {
       stopRecordingSilently();
       if (sound) sound.unloadAsync().catch(() => {});
@@ -50,18 +127,23 @@ export default function Home() {
 
   const loadAllRecordings = async () => {
     try {
-      const dir = FileSystem.documentDirectory!;
-      const files = await FileSystem.readDirectoryAsync(dir);
-      const sosFiles = files.filter(f => f.startsWith('SOS_') && f.endsWith('.m4a'));
-      const sorted = sosFiles.sort((a, b) => b.localeCompare(a));
-      
-      setAllRecordings(sorted.map(name => ({
-        name,
-        uri: dir + name,
-        date: new Date(parseInt(name.replace('SOS_', '').replace('.m4a', ''))).toLocaleString('pt-BR', { 
-          day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' 
-        })
-      })));
+      // Agora buscamos APENAS os áudios do usuário logado
+      const { data, error } = await supabase
+        .from('sos_records')
+        .select('file_name, file_path, created_at')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        const mapped = data.map(item => ({
+          name: item.file_name,
+          uri: `https://yweyflgschjpkwysopps.supabase.co/storage/v1/object/public/sos-recordings/${item.file_path}`, // URL pública direta
+          date: new Date(item.created_at).toLocaleString('pt-BR')
+        }));
+        setAllRecordings(mapped);
+      }
     } catch (err) { console.error('Erro ao carregar:', err); }
   };
 
@@ -107,8 +189,7 @@ export default function Home() {
       const finalPath = FileSystem.documentDirectory + fileName;
       await FileSystem.copyAsync({ from: tempUri!, to: finalPath });
 
-      // 🌩️ BACKUP + INTEGRIDADE
-      Alert.alert('📡 Processando...', 'Criptografando e enviando para nuvem segura...');
+      Alert.alert('📡 Processando...', 'Criptografando e enviando...');
       
       let locationData = { lat: 0, lng: 0, acc: 0 };
       try {
@@ -119,26 +200,24 @@ export default function Home() {
         }
       } catch (e) { console.log('GPS fallback:', e); }
 
-      // Gera o Hash de integridade (Prova de que o arquivo não foi alterado)
       const fileBase64 = await FileSystem.readAsStringAsync(finalPath, { encoding: FileSystem.EncodingType.Base64 });
       const fileHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, fileBase64);
       
-      const cloudPath = `recordings/${fileName}`;
+      const cloudPath = `recordings/${session.user.id}/${fileName}`; // Pasta separada por usuário
       const { error: uploadError } = await supabase.storage.from('sos-recordings').upload(cloudPath, { uri: finalPath }, { contentType: 'audio/mp4' });
       if (uploadError) throw uploadError;
 
       await supabase.from('sos_records').insert({
         file_name: fileName, file_path: cloudPath, file_hash: fileHash,
+        user_id: session.user.id, // Vincula ao usuário
         latitude: locationData.lat, longitude: locationData.lng, accuracy: locationData.acc,
         created_at: new Date().toISOString(), status: 'secured'
       });
 
-      Alert.alert('✅ PROVA REGISTRADA!', 'Áudio salvo + Backup criptografado na nuvem com certificado de integridade.');
+      Alert.alert('✅ PROVA REGISTRADA!', 'Backup seguro realizado.');
       await loadAllRecordings();
     } catch (err: any) {
-      console.error('Erro SOS:', err);
-      Alert.alert('⚠️ Modo Offline', 'Salvo localmente. A nuvem sincronizará quando houver conexão.');
-      await loadAllRecordings();
+      Alert.alert('⚠️ Erro', err.message || 'Falha ao salvar.');
     } finally {
       setRecording(null); setIsRecording(false); setCountdown(3); setTimer(0); setUploading(false);
     }
@@ -157,20 +236,6 @@ export default function Home() {
   const shareFile = async (uri: string) => {
     try { await Sharing.shareAsync(uri, { mimeType: 'audio/mp4', dialogTitle: 'Enviar gravação SOS', UTI: 'public.audio' }); }
     catch { Alert.alert('Erro', 'Não foi possível compartilhar.'); }
-  };
-
-  const deleteRecording = async (uri: string, name: string) => {
-    Alert.alert('🗑️ Apagar?', `Excluir ${name}? Irreversível.`, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Apagar', style: 'destructive', onPress: async () => {
-          try {
-            await FileSystem.deleteAsync(uri);
-            if (playingUri === uri) { await sound?.unloadAsync(); setSound(null); setPlayingUri(null); }
-            await loadAllRecordings(); if (showHistory) openHistory();
-            Alert.alert('✅ Removido', 'Arquivo excluído.');
-          } catch { Alert.alert('Erro', 'Falha ao excluir.'); }
-        }}
-    ]);
   };
 
   const handlePressIn = () => {
@@ -196,9 +261,6 @@ export default function Home() {
         <TouchableOpacity style={styles.actBtn} onPress={() => shareFile(item.uri)}>
           <Text style={styles.actText}>📤</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actBtnDel} onPress={() => deleteRecording(item.uri, item.name)}>
-          <Text style={styles.actTextDel}>🗑️</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -207,7 +269,7 @@ export default function Home() {
     <View style={styles.container}>
       <StatusBar style="light" />
       <View style={styles.header}>
-        <Text style={styles.greeting}>Olá, Carlos.</Text>
+        <Text style={styles.greeting}>Olá, {session.user.email?.split('@')[0]}.</Text>
         <Text style={styles.status}>Você está protegido.</Text>
       </View>
 
@@ -239,25 +301,23 @@ export default function Home() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>📂 Histórico de Gravações</Text>
+              <Text style={styles.modalTitle}>📂 Histórico</Text>
               <TouchableOpacity onPress={() => setShowHistory(false)} style={styles.closeBtn}><Text style={styles.closeText}>✕</Text></TouchableOpacity>
             </View>
             {allRecordings.length === 0 ? <Text style={styles.emptyText}>Nenhuma gravação.</Text> : (
               <>
-                <FlatList data={visibleRecordings} keyExtractor={item => item.uri} renderItem={renderRecording} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled" />
-                {hasMore && <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMore}><Text style={styles.loadMoreText}>Carregar mais 5</Text></TouchableOpacity>}
+                <FlatList data={visibleRecordings} keyExtractor={item => item.uri} renderItem={renderRecording} contentContainerStyle={styles.listContent} />
+                {hasMore && <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMore}><Text style={styles.loadMoreText}>Carregar mais</Text></TouchableOpacity>}
               </>
             )}
           </View>
         </View>
       </Modal>
 
-      <View style={styles.grid}>
-        <View style={styles.card}><Text style={styles.cIcon}>⚖️</Text><Text style={styles.cTitle}>Meus Direitos</Text></View>
-        <View style={styles.card}><Text style={styles.cIcon}>🧮</Text><Text style={styles.cTitle}>Calculadora</Text></View>
-        <View style={styles.card}><Text style={styles.cIcon}>👨‍⚖️</Text><Text style={[styles.cSub, {color:'#FFB74D'}]}>Jurídico ⭐</Text></View>
-        <View style={styles.card}><Text style={styles.cIcon}>📄</Text><Text style={styles.cTitle}>Documentos</Text></View>
-      </View>
+      {/* Botão de Sair */}
+      <TouchableOpacity style={styles.logoutBtn} onPress={() => supabase.auth.signOut()}>
+        <Text style={styles.logoutText}>Sair da Conta</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -297,14 +357,18 @@ const styles = StyleSheet.create({
   recActions: { flexDirection: 'row', gap: 8 },
   actBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#2196F3', alignItems: 'center', justifyContent: 'center' },
   actBtnPlay: { backgroundColor: '#FF9800' },
-  actBtnDel: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,82,82,0.15)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FF5252' },
   actText: { color: '#fff', fontSize: 14 },
-  actTextDel: { fontSize: 14 },
   loadMoreBtn: { marginTop: 16, padding: 12, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, alignItems: 'center' },
   loadMoreText: { color: '#81C784', fontWeight: '600' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8, marginTop: 'auto' },
-  card: { width: '48%', backgroundColor: '#1E1E1E', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-  cIcon: { fontSize: 18, marginBottom: 4 },
-  cTitle: { color: '#F0F0F0', fontSize: 13, fontWeight: '700' },
-  cSub: { color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }
+  logoutBtn: { marginTop: 'auto', marginBottom: 40, alignItems: 'center' },
+  logoutText: { color: '#666', fontSize: 14 },
+
+  // Login Styles
+  authContainer: { flex: 1, backgroundColor: '#0F0F0F', justifyContent: 'center', padding: 30 },
+  authTitle: { fontSize: 32, fontWeight: '900', color: '#fff', textAlign: 'center', marginBottom: 10 },
+  authSubtitle: { fontSize: 16, color: '#81C784', textAlign: 'center', marginBottom: 40 },
+  input: { backgroundColor: '#1A1A1A', color: '#fff', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#333' },
+  authBtn: { backgroundColor: '#C62828', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10 },
+  authBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  authLink: { color: '#81C784', textAlign: 'center', marginTop: 20 }
 });

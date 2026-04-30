@@ -40,14 +40,40 @@ function AuthScreen({ setSession }: any) {
   const [loading, setLoading] = useState(false);
 
   const handleAuth = async () => {
+    if (!email || !password) {
+      Alert.alert('Atenção', 'Preencha email e senha!');
+      return;
+    }
+
     setLoading(true);
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        // ✅ LOGIN - capturando data E error
+        const { data, error } = await supabase.auth.signInWithPassword({ 
+          email, 
+          password 
+        });
+        
+        if (error) {
+          throw error;
+        }
+        
+        // ✅ ATUALIZA A SESSÃO após login bem-sucedido
+        if (data?.session) {
+          setSession(data.session);
+        }
+        
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
-        if (error) throw error;
+        // CADASTRO
+        const { error } = await supabase.auth.signUp({ 
+          email, 
+          password 
+        });
+        
+        if (error) {
+          throw error;
+        }
+        
         Alert.alert('Sucesso', 'Conta criada! Faça login.');
         setIsLogin(true);
       }

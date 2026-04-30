@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, Alert, Modal, FlatList, 
-  TextInput, ActivityIndicator, KeyboardAvoidingView, Platform 
+  TextInput, ActivityIndicator 
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
@@ -21,42 +21,46 @@ const PAGE_SIZE = 5;
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
-  const [isReady, setIsReady] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Verifica se já existe uma sessão salva (persistência)
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // 1️⃣ Verifica sessão salva ao abrir
+    supabase.auth.getSession().then(({  { session } }) => {
       console.log('🔍 Sessão inicial:', session ? '✅ Ativa' : '❌ Nula');
       setSession(session);
-      setIsReady(true);
+      setIsLoading(false);
     });
 
-    // 2. Listener global: atualiza a UI automaticamente quando login/logout acontece
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log('🔄 AuthStateChange:', _event, session ? ' Sessão Atualizada' : '🔴 Sessão Nula');
+    // 2️⃣ Listener de backup (persistência e logout)
+    const {  { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log('🔄 Auth change:', _event, session ? '🟢 Sessão atualizada' : '🔴 Sessão nula');
       setSession(session);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  if (!isReady) {
+  // Debug de renderização
+  console.log('🖥️ Renderizando App. Sessão:', session ? '✅ Logado' : '❌ Deslogado');
+
+  if (isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0F0F0F', justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#fff" />
+        <Text style={{ color: '#81C784', marginTop: 10 }}>Carregando SOSCLT...</Text>
       </View>
     );
   }
 
   if (!session) {
-    return <AuthScreen />;
+    return <AuthScreen setSession={setSession} />;
   }
 
-  return <HomeScreen session={session} />;
+  return <HomeScreen session={session} setSession={setSession} />;
 }
 
 // --- TELA DE LOGIN / CADASTRO ---
-function AuthScreen() {
+function AuthScreen({ setSession }: any) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLogin, setIsLogin] = useState(true);
@@ -71,12 +75,15 @@ function AuthScreen() {
     setLoading(true);
     try {
       if (isLogin) {
-        console.log(' Tentando login com:', email);
+        console.log('🔑 Tentando login com:', email);
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         
         if (error) throw error;
-        console.log('✅ Login bem-sucedido! O listener vai atualizar a tela automaticamente.');
-        // Não precisa chamar setSession aqui. O onAuthStateChange faz isso.
+        
+        console.log('✅ Login bem-sucedido! Forçando atualização da sessão...');
+        //  Atualização explícita (garante que a UI mude imediatamente)
+        if (data?.session) setSession(data.session);
+        
       } else {
         console.log('📝 Tentando cadastro com:', email);
         const { error } = await supabase.auth.signUp({ email, password });
@@ -86,7 +93,7 @@ function AuthScreen() {
         setIsLogin(true);
       }
     } catch (error: any) {
-      console.error(' Erro:', error);
+      console.error('❌ Erro na autenticação:', error);
       Alert.alert('Erro', error.message || 'Falha na autenticação');
     } finally {
       setLoading(false);
@@ -131,12 +138,12 @@ function AuthScreen() {
 }
 
 // --- TELA PRINCIPAL (SOS) ---
-function HomeScreen({ session }: any) {
+function HomeScreen({ session, setSession }: any) {
   const [isRecording, setIsRecording] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [timer, setTimer] = useState(0);
-  const timerRef = useRef<any>(null);
+  const timerRef = React.useRef<any>(null);
 
   const [allRecordings, setAllRecordings] = useState<Recording[]>([]);
   const [visibleRecordings, setVisibleRecordings] = useState<Recording[]>([]);
@@ -149,7 +156,7 @@ function HomeScreen({ session }: any) {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    console.log('🏠 HomeScreen carregada. Usuário:', session.user.email);
+    console.log(' HomeScreen carregada. Usuário:', session.user.email);
     loadAllRecordings();
     return () => {
       stopRecordingSilently();
@@ -248,7 +255,7 @@ function HomeScreen({ session }: any) {
       Alert.alert('✅ PROVA REGISTRADA!', 'Backup seguro realizado.');
       await loadAllRecordings();
     } catch (err: any) {
-      Alert.alert('⚠️ Erro', err.message || 'Falha ao salvar.');
+      Alert.alert('️ Erro', err.message || 'Falha ao salvar.');
     } finally {
       setRecording(null); setIsRecording(false); setCountdown(3); setTimer(0); setUploading(false);
     }
@@ -287,7 +294,7 @@ function HomeScreen({ session }: any) {
       </View>
       <View style={styles.recActions}>
         <TouchableOpacity style={[styles.actBtn, playingUri === item.uri && styles.actBtnPlay]} onPress={() => togglePlay(item.uri)}>
-          <Text style={styles.actText}>{playingUri === item.uri ? '' : '▶'}</Text>
+          <Text style={styles.actText}>{playingUri === item.uri ? '⏸' : '▶'}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actBtn} onPress={() => shareFile(item.uri)}>
           <Text style={styles.actText}>📤</Text>
@@ -311,12 +318,12 @@ function HomeScreen({ session }: any) {
           ) : isRecording ? (
             <><Text style={styles.icon}>🔴</Text><Text style={styles.bigNum}>{formatTime(timer)}</Text><Text style={styles.sub}>Gravando... Toque para PARAR</Text></>
           ) : (
-            <><Text style={styles.icon}>🆘</Text><Text style={styles.label}>ACIONAR SOS</Text><Text style={styles.sub}>Segure 3s para ativar</Text></>
+            <><Text style={styles.icon}></Text><Text style={styles.label}>ACIONAR SOS</Text><Text style={styles.sub}>Segure 3s para ativar</Text></>
           )}
         </TouchableOpacity>
         {isRecording && countdown === 0 && (
           <TouchableOpacity style={styles.stopBtn} onPress={stopAndSave} disabled={uploading}>
-            <Text style={styles.stopText}>{uploading ? ' Enviando...' : '⏹️ PARAR & SALVAR'}</Text>
+            <Text style={styles.stopText}>{uploading ? '📡 Enviando...' : '⏹️ PARAR & SALVAR'}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -345,7 +352,6 @@ function HomeScreen({ session }: any) {
         </View>
       </Modal>
 
-      {/* Botão de Sair */}
       <TouchableOpacity style={styles.logoutBtn} onPress={() => supabase.auth.signOut()}>
         <Text style={styles.logoutText}>Sair da Conta</Text>
       </TouchableOpacity>
@@ -393,7 +399,6 @@ const styles = StyleSheet.create({
   loadMoreText: { color: '#81C784', fontWeight: '600' },
   logoutBtn: { marginTop: 'auto', marginBottom: 40, alignItems: 'center' },
   logoutText: { color: '#666', fontSize: 14 },
-
   authContainer: { flex: 1, backgroundColor: '#0F0F0F', justifyContent: 'center', padding: 30 },
   authTitle: { fontSize: 32, fontWeight: '900', color: '#fff', textAlign: 'center', marginBottom: 10 },
   authSubtitle: { fontSize: 16, color: '#81C784', textAlign: 'center', marginBottom: 40 },

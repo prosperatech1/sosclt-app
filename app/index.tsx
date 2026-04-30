@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, Alert, Modal, FlatList, 
   TextInput, ActivityIndicator, KeyboardAvoidingView, Platform 
@@ -21,19 +21,42 @@ const PAGE_SIZE = 5;
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  
-  // Se não houver sessão, mostra tela de Login
-  if (!session) {
-    return <AuthScreen setSession={setSession} />;
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    // 1. Verifica se já existe uma sessão salva (persistência)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('🔍 Sessão inicial:', session ? '✅ Ativa' : '❌ Nula');
+      setSession(session);
+      setIsReady(true);
+    });
+
+    // 2. Listener global: atualiza a UI automaticamente quando login/logout acontece
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log('🔄 AuthStateChange:', _event, session ? ' Sessão Atualizada' : '🔴 Sessão Nula');
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (!isReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0F0F0F', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#fff" />
+      </View>
+    );
   }
 
-  // Se houver sessão, mostra o App Principal (SOS)
-  return <HomeScreen session={session} setSession={setSession} />;
+  if (!session) {
+    return <AuthScreen />;
+  }
+
+  return <HomeScreen session={session} />;
 }
 
 // --- TELA DE LOGIN / CADASTRO ---
-function AuthScreen({ setSession }: any) {
+function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLogin, setIsLogin] = useState(true);
@@ -48,36 +71,22 @@ function AuthScreen({ setSession }: any) {
     setLoading(true);
     try {
       if (isLogin) {
-        // ✅ LOGIN - capturando data E error
-        const { data, error } = await supabase.auth.signInWithPassword({ 
-          email, 
-          password 
-        });
+        console.log(' Tentando login com:', email);
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         
-        if (error) {
-          throw error;
-        }
-        
-        // ✅ ATUALIZA A SESSÃO após login bem-sucedido
-        if (data?.session) {
-          setSession(data.session);
-        }
-        
+        if (error) throw error;
+        console.log('✅ Login bem-sucedido! O listener vai atualizar a tela automaticamente.');
+        // Não precisa chamar setSession aqui. O onAuthStateChange faz isso.
       } else {
-        // CADASTRO
-        const { error } = await supabase.auth.signUp({ 
-          email, 
-          password 
-        });
+        console.log('📝 Tentando cadastro com:', email);
+        const { error } = await supabase.auth.signUp({ email, password });
         
-        if (error) {
-          throw error;
-        }
-        
+        if (error) throw error;
         Alert.alert('Sucesso', 'Conta criada! Faça login.');
         setIsLogin(true);
       }
     } catch (error: any) {
+      console.error(' Erro:', error);
       Alert.alert('Erro', error.message || 'Falha na autenticação');
     } finally {
       setLoading(false);
@@ -122,7 +131,7 @@ function AuthScreen({ setSession }: any) {
 }
 
 // --- TELA PRINCIPAL (SOS) ---
-function HomeScreen({ session, setSession }: any) {
+function HomeScreen({ session }: any) {
   const [isRecording, setIsRecording] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -140,10 +149,7 @@ function HomeScreen({ session, setSession }: any) {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    // Verifica sessão ativa
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    supabase.auth.onAuthStateChange((_event, session) => setSession(session));
-    
+    console.log('🏠 HomeScreen carregada. Usuário:', session.user.email);
     loadAllRecordings();
     return () => {
       stopRecordingSilently();
@@ -153,7 +159,6 @@ function HomeScreen({ session, setSession }: any) {
 
   const loadAllRecordings = async () => {
     try {
-      // Agora buscamos APENAS os áudios do usuário logado
       const { data, error } = await supabase
         .from('sos_records')
         .select('file_name, file_path, created_at')
@@ -165,7 +170,7 @@ function HomeScreen({ session, setSession }: any) {
       if (data) {
         const mapped = data.map(item => ({
           name: item.file_name,
-          uri: `https://yweyflgschjpkwysopps.supabase.co/storage/v1/object/public/sos-recordings/${item.file_path}`, // URL pública direta
+          uri: `https://yweyflgschjpkwysopps.supabase.co/storage/v1/object/public/sos-recordings/${item.file_path}`,
           date: new Date(item.created_at).toLocaleString('pt-BR')
         }));
         setAllRecordings(mapped);
@@ -229,13 +234,13 @@ function HomeScreen({ session, setSession }: any) {
       const fileBase64 = await FileSystem.readAsStringAsync(finalPath, { encoding: FileSystem.EncodingType.Base64 });
       const fileHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, fileBase64);
       
-      const cloudPath = `recordings/${session.user.id}/${fileName}`; // Pasta separada por usuário
+      const cloudPath = `recordings/${session.user.id}/${fileName}`;
       const { error: uploadError } = await supabase.storage.from('sos-recordings').upload(cloudPath, { uri: finalPath }, { contentType: 'audio/mp4' });
       if (uploadError) throw uploadError;
 
       await supabase.from('sos_records').insert({
         file_name: fileName, file_path: cloudPath, file_hash: fileHash,
-        user_id: session.user.id, // Vincula ao usuário
+        user_id: session.user.id,
         latitude: locationData.lat, longitude: locationData.lng, accuracy: locationData.acc,
         created_at: new Date().toISOString(), status: 'secured'
       });
@@ -282,7 +287,7 @@ function HomeScreen({ session, setSession }: any) {
       </View>
       <View style={styles.recActions}>
         <TouchableOpacity style={[styles.actBtn, playingUri === item.uri && styles.actBtnPlay]} onPress={() => togglePlay(item.uri)}>
-          <Text style={styles.actText}>{playingUri === item.uri ? '⏸' : '▶'}</Text>
+          <Text style={styles.actText}>{playingUri === item.uri ? '' : '▶'}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actBtn} onPress={() => shareFile(item.uri)}>
           <Text style={styles.actText}>📤</Text>
@@ -311,7 +316,7 @@ function HomeScreen({ session, setSession }: any) {
         </TouchableOpacity>
         {isRecording && countdown === 0 && (
           <TouchableOpacity style={styles.stopBtn} onPress={stopAndSave} disabled={uploading}>
-            <Text style={styles.stopText}>{uploading ? '📡 Enviando...' : '⏹️ PARAR & SALVAR'}</Text>
+            <Text style={styles.stopText}>{uploading ? ' Enviando...' : '⏹️ PARAR & SALVAR'}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -389,7 +394,6 @@ const styles = StyleSheet.create({
   logoutBtn: { marginTop: 'auto', marginBottom: 40, alignItems: 'center' },
   logoutText: { color: '#666', fontSize: 14 },
 
-  // Login Styles
   authContainer: { flex: 1, backgroundColor: '#0F0F0F', justifyContent: 'center', padding: 30 },
   authTitle: { fontSize: 32, fontWeight: '900', color: '#fff', textAlign: 'center', marginBottom: 10 },
   authSubtitle: { fontSize: 16, color: '#81C784', textAlign: 'center', marginBottom: 40 },

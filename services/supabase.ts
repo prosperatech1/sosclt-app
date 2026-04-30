@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const supabaseUrl = 'https://yweyflgschjpkwysopps.supabase.co';
 
 // 🔑 ATENÇÃO: Cole aqui a sua Publishable Key (começa com sb_publishable_)
-const supabaseAnonKey = 'sb_publishable__2rmWKbrvthOoiC51P19XA__fA0As71';
+const supabaseAnonKey = 'sb_publishable_SpqSEH1AYQu4oz-LMnL8Vw_skFvaaRM';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
